@@ -1,0 +1,110 @@
+to test_multilevel_jumps
+    val = 0
+    if true
+        if true
+            if true
+                if true
+                    if true
+                        if true
+                            val = 60
+    assert(val == 60, "6-level deep nesting failed")
+    
+    v2 = 0
+    if true
+        if true
+            if true
+                if true
+                    v2 = 40
+        assert(v2 == 40, "4-level jump to 2 failed")
+
+to test_nested_loops_and_scoping
+    total = 0
+    for i in [1, 2, 3]
+        for j in [10, 20]
+            for k in [100, 200]
+                total = total + 1
+    assert(total == 12, "3-level nested loops failed")
+
+to test_multiline_collections
+    matrix = [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7, 8, 9]
+    ]
+    assert(matrix[0][0] == 1, "Multiline list 0,0 failed")
+    assert(matrix[1][1] == 5, "Multiline list 1,1 failed")
+    assert(matrix[2][2] == 9, "Multiline list 2,2 failed")
+
+    person = {
+        "name": "Geometric",
+        "nested": {
+            "depth": 3,
+            "valid": true,
+            "tags": ["topological", "parser"]
+        }
+    }
+    assert(person["name"] == "Geometric", "Multiline dict key failed")
+    assert(person["nested"]["depth"] == 3, "Multiline nested dict failed")
+    assert(person["nested"]["valid"] == true, "Multiline nested bool failed")
+    assert(person["nested"]["tags"][1] == "parser", "Multiline nested list in dict failed")
+
+to test_siblings_and_whitespace
+    step = 0
+    if true
+        step = 1
+        
+        step = 2
+        
+        step = 3
+
+    assert(step == 3, "Sibling with blank lines failed")
+
+to test_conditional_ladder
+    score = 85
+    grade = ""
+    if score >= 90
+        grade = "A"
+    elif score >= 80
+        grade = "B"
+    elif score >= 70
+        grade = "C"
+    else
+        grade = "F"
+    assert(grade == "B", "Conditional ladder failed")
+
+to test_nested_functions_topography
+    to level1(a)
+        to level2(b)
+            to level3(c)
+                to level4(d)
+                    give a + b + c + d
+                give level4(4)
+            give level3(3)
+        give level2(2)
+    
+    res = level1(1)
+    assert(res == 10, "4-level nested function topography failed")
+
+to test_interleaved_dedents_and_loops
+    acc = []
+    for i in [0, 1, 2]
+        for j in [0, 1]
+            if i == j
+                acc.append(i * 10 + j)
+            else
+                acc.append(0 - (i * 10 + j))
+    
+    assert(acc.len() == 6, "Interleaved loop accumulator length failed")
+    assert(acc[0] == 0, "Item 0 failed")
+    assert(acc[1] == -1, "Item 1 failed")
+    assert(acc[2] == -10, "Item 2 failed")
+    assert(acc[3] == 11, "Item 3 failed")
+
+test_multilevel_jumps()
+test_nested_loops_and_scoping()
+test_multiline_collections()
+test_siblings_and_whitespace()
+test_conditional_ladder()
+test_nested_functions_topography()
+test_interleaved_dedents_and_loops()
+say "Topography tests passed"

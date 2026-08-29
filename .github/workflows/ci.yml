@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python for Integration Tests
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential libsdl2-dev libcurl4-openssl-dev libxcb1-dev libx11-dev libpng-dev
+
+    - name: Build (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        chmod +x install.sh
+        ./install.sh
+
+    - name: Configure MSVC (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        mkdir build_cpp -ErrorAction SilentlyContinue
+        cd build_cpp
+        cmake ..
+        cmake --build . --config Release
+        copy Release\shell_lite_exec.exe ..\shlcpp.exe
+        copy Release\shell_lite_lib.dll ..\shell_lite_lib.dll
+        cd ..
+
+    - name: Build (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        mkdir -p build_cpp
+        cd build_cpp
+        cmake ..
+        cmake --build . --config Release
+        cp shell_lite_exec ../shlcpp
+        cd ..
+
+    - name: Run CLI Subcommand Smoke Tests (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: |
+        ./shlcpp --version
+        ./shlcpp check examples/guessing_game.shl
+        ./shlcpp ast examples/guessing_game.shl
+
+    - name: Run CLI Subcommand Smoke Tests (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        .\shlcpp.exe --version
+        .\shlcpp.exe check examples\guessing_game.shl
+        .\shlcpp.exe ast examples\guessing_game.shl
+
+    - name: Run Pytest Test Suite
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install pytest anyio
+        PYTHONPATH=. python -m pytest tests/ -v

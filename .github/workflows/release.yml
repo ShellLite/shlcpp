@@ -1,0 +1,88 @@
+name: Build and Release ShellLite
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: shlcpp-windows-x64.zip
+            target: windows
+          - os: ubuntu-latest
+            artifact_name: shlcpp-linux-x64.tar.gz
+            target: linux
+          - os: macos-latest
+            artifact_name: shlcpp-macos-universal.tar.gz
+            target: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Linux Dependencies
+        if: matrix.target == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev cmake build-essential libxcb1-dev libx11-dev libpng-dev
+
+      - name: Configure MSVC (Windows)
+        if: matrix.target == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build ShellLite (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          mkdir build_cpp
+          cd build_cpp
+          cmake ..
+          cmake --build . --config Release
+          cd ..
+          mkdir package
+          copy build_cpp\Release\shell_lite_exec.exe package\shlcpp.exe
+          copy build_cpp\Release\shell_lite_lib.dll package\shell_lite_lib.dll
+          xcopy /E /I shell_lite\stdlib package\stdlib
+          Compress-Archive -Path package\* -DestinationPath ${{ matrix.artifact_name }}
+
+      - name: Build ShellLite (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          mkdir build_cpp
+          cd build_cpp
+          cmake ..
+          cmake --build . --config Release
+          cd ..
+          mkdir package
+          cp build_cpp/shell_lite_exec package/shlcpp
+          cp -r shell_lite/stdlib package/stdlib
+          tar -czvf ${{ matrix.artifact_name }} -C package .
+
+      - name: Build ShellLite (macOS)
+        if: matrix.target == 'macos'
+        run: |
+          mkdir build_cpp
+          cd build_cpp
+          cmake ..
+          cmake --build . --config Release
+          cd ..
+          mkdir package
+          cp build_cpp/shell_lite_exec package/shlcpp
+          cp -r shell_lite/stdlib package/stdlib
+          tar -czvf ${{ matrix.artifact_name }} -C package .
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact_name }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

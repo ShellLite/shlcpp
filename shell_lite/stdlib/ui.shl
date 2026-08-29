@@ -1,0 +1,48 @@
+# ShellLite Standard UI Library
+# Provides natural language UI alerts, prompts, and confirmations.
+# Usage: use "shell_lite/stdlib/ui.shl"
+
+to show_alert message
+    give std_ui_alert(message)
+
+to show_error message
+    give std_ui_alert("ERROR: " + message)
+
+to show_warning message
+    give std_ui_alert("WARNING: " + message)
+
+to ask_user question
+    give std_ui_prompt(question)
+
+to ask_with_default question, default_val
+    give std_ui_prompt(question + " [" + default_val + "]")
+
+to confirm_action question
+    give std_ui_confirm(question)
+
+to confirm_destructive_action action_name
+    give std_ui_confirm("Are you sure you want to " + action_name + "? This cannot be undone.")
+
+to ask_yes_no question
+    make valid = false
+    make result = false
+    while valid == false
+        make response = ask_user(question + " (y/n)")
+        if response == "y"
+            make valid = true
+            make result = true
+        if response == "n"
+            make valid = true
+            make result = false
+        if valid == false
+            show_alert("Please enter 'y' or 'n'.")
+    give result
+
+to show_menu options
+    make prompt_text = "Select an option:\n"
+    make i = 1
+    for opt in options
+        make prompt_text = prompt_text + std_convert(i, "string") + ". " + opt + "\n"
+        make i = i + 1
+    make selection = ask_user(prompt_text)
+    give selection

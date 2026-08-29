@@ -1,0 +1,59 @@
+to test_de_morgans_laws
+    for p in [true, false]
+        for q in [true, false]
+            left1 = not (p and q)
+            right1 = (not p) or (not q)
+            assert(left1 == right1, "De Morgan Law 1 failed")
+
+            left2 = not (p or q)
+            right2 = (not p) and (not q)
+            assert(left2 == right2, "De Morgan Law 2 failed")
+
+to test_comparison_chains
+    assert(5 > 3, "5 > 3 failed")
+    assert(3 < 5, "3 < 5 failed")
+    assert(5 >= 5, "5 >= 5 failed")
+    assert(5 <= 5, "5 <= 5 failed")
+    assert(5 != 4, "5 != 4 failed")
+    assert(10 == 10, "10 == 10 failed")
+
+    assert("apple" < "banana", "String comparison < failed")
+    assert("zebra" > "apple", "String comparison > failed")
+    assert("hello" == "hello", "String comparison == failed")
+    assert("hello" != "world", "String comparison != failed")
+
+to test_complex_branching
+    to classify_number(n)
+        if n < 0
+            give "negative"
+        elif n == 0
+            give "zero"
+        elif n < 10
+            give "single_digit"
+        elif n < 100
+            give "double_digit"
+        else
+            give "large"
+
+    assert(classify_number(-5) == "negative", "negative failed")
+    assert(classify_number(0) == "zero", "zero failed")
+    assert(classify_number(7) == "single_digit", "single digit failed")
+    assert(classify_number(42) == "double_digit", "double digit failed")
+    assert(classify_number(500) == "large", "large failed")
+
+to test_unless_construct
+    triggered = false
+    unless false
+        triggered = true
+    assert(triggered == true, "unless false failed")
+
+    skipped = true
+    unless true
+        skipped = false
+    assert(skipped == true, "unless true should skip body")
+
+test_de_morgans_laws()
+test_comparison_chains()
+test_complex_branching()
+test_unless_construct()
+say "Logic tests passed"

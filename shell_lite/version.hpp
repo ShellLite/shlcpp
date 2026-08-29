@@ -1,0 +1,11 @@
+#pragma once
+
+#define SHLCPP_VERSION "0.1.0"
+#define SHLCPP_VERSION_MAJOR 0
+#define SHLCPP_VERSION_MINOR 1
+#define SHLCPP_VERSION_PATCH 0
+#define SHLCPP_BUILD_NAME "shlcpp"
+
+// Aliases for compatibility
+#define SHELL_LITE_VERSION SHLCPP_VERSION
+#define SHELL_LITE_BUILD_NAME SHLCPP_BUILD_NAME

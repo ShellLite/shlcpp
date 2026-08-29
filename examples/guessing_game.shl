@@ -1,0 +1,26 @@
+# Number Guessing Game in shlcpp
+use "random"
+
+say "=== Number Guessing Game ==="
+say "I'm thinking of a number between 1 and 100."
+
+secret = randint(1, 100)
+attempts = 0
+max_attempts = 7
+
+while attempts < max_attempts
+    remaining = max_attempts - attempts
+    say "\nAttempts remaining: " + str(remaining)
+    
+    guess = int(ask "Your guess: ")
+    attempts = attempts + 1
+    
+    if guess == secret
+        say "\nCongratulations! You got it in " + str(attempts) + " attempts!"
+        stop
+    elif guess < secret
+        say "Too low!"
+    else
+        say "Too high!"
+
+say "\nGame Over! The number was " + str(secret)

@@ -1,0 +1,71 @@
+# ShellLite Standard JSON Library
+# Provides comprehensive JSON parsing, formatting, and manipulation utilities.
+
+to std_json_parse s
+    give json_parse(s)
+
+to std_json_stringify obj
+    give json_stringify(obj)
+
+to json_pretty data
+    give json_stringify(data, 2)
+
+to json_format data, indent
+    give json_stringify(data, indent)
+
+to json_read_file path
+    make content = io_read(path)
+    give json_parse(content)
+
+to json_write_file path, data
+    make content = json_stringify(data)
+    io_write(path, content)
+    give true
+
+to json_write_file_pretty path, data
+    make content = json_stringify(data, 2)
+    io_write(path, content)
+    give true
+
+to json_has obj, key
+    give dict_has(obj, key)
+
+to json_keys obj
+    give dict_keys(obj)
+
+to json_values obj
+    give dict_values(obj)
+
+to json_get obj, path_str
+    make parts = split(path_str, ".")
+    make n = len(parts)
+    make curr = obj
+    make i = 0
+    make key = ""
+    while i < n
+        key = parts[i]
+        if dict_has(curr, key)
+            curr = curr[key]
+            i = i + 1
+        else
+            give null
+    give curr
+
+to json_set obj, path_str, val
+    make parts = split(path_str, ".")
+    make n = len(parts)
+    make curr = obj
+    make i = 0
+    make key = ""
+    make max_i = n - 1
+    if n == 1
+        obj[parts[0]] = val
+        give obj
+    while i < max_i
+        key = parts[i]
+        if not dict_has(curr, key)
+            curr[key] = {}
+        curr = curr[key]
+        i = i + 1
+    curr[parts[max_i]] = val
+    give obj

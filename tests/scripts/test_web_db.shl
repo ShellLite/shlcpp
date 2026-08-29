@@ -1,0 +1,43 @@
+to query_by_role(tbl, role_name)
+    matched = []
+    for r in tbl
+        if r["role"] == role_name
+            matched.append(r)
+    give matched
+
+to test_db_record_modeling
+    user_schema = {
+        "id": "number",
+        "username": "string",
+        "email": "string",
+        "is_active": "bool"
+    }
+
+    user1 = {
+        "id": 1,
+        "username": "alice",
+        "email": "alice@example.com",
+        "is_active": true
+    }
+
+    assert(user1["id"] == 1, "User ID failed")
+    assert(user1["username"] == "alice", "Username failed")
+    assert(user1["is_active"] == true, "Active flag failed")
+
+to test_db_in_memory_query
+    records_table = []
+    records_table.append({"id": 1, "name": "Alice", "role": "admin"})
+    records_table.append({"id": 2, "name": "Bob", "role": "editor"})
+    records_table.append({"id": 3, "name": "Charlie", "role": "viewer"})
+
+    admins = query_by_role(records_table, "admin")
+    assert(admins.len() == 1, "Admin query length failed")
+    assert(admins[0]["name"] == "Alice", "Admin query result failed")
+
+    editors = query_by_role(records_table, "editor")
+    assert(editors.len() == 1, "Editor query length failed")
+    assert(editors[0]["name"] == "Bob", "Editor query result failed")
+
+test_db_record_modeling()
+test_db_in_memory_query()
+say "Web DB tests passed"

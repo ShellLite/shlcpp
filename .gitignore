@@ -1,0 +1,64 @@
+# Build artifacts
+build/
+build_cpp/
+package/
+dist/
+bin/
+out/
+sqlite/
+sqlite.zip
+
+# Binaries & Libs
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.exp
+*.obj
+*.pdb
+*.bc
+*.ll
+*.pyd
+*.manifest
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+ENV/
+
+# Whitelist tests directory
+!tests/
+!tests/**
+tests/**/__pycache__/
+
+# tmep test scripts
+tmp_*.shl
+temp_*.shl
+
+# Logs
+*.log
+error.txt
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+.vscode/
+.DS_Store
+Thumbs.db

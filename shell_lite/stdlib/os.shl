@@ -1,0 +1,67 @@
+# ShellLite Standard OS Library
+# Provides command execution and operating system interactions.
+
+to run_command cmd
+    give os_execute(cmd)
+
+to execute_command cmd
+    give os_execute(cmd)
+
+to get_os_name
+    give std_os_name()
+
+to get_platform
+    give std_os_platform()
+
+to is_windows
+    give std_os_name() == "windows"
+
+to is_macos
+    give std_os_name() == "macos"
+
+to is_linux
+    give std_os_name() == "linux"
+
+to clear_screen
+    std_os_clear()
+
+to get_env_variable var_name
+    give std_os_getenv(var_name)
+
+to get_current_directory
+    give std_os_getcwd()
+
+to create_empty_file path
+    io_write(path, "")
+    give true
+
+to sanitize_cli_arg arg
+    make bad_chars = [";", "&", "|", "`", "$", "(", ")", "\n", "\r"]
+    for ch in bad_chars
+        if str_contains(arg, ch)
+            error "Unsafe characters detected in command argument: " + arg
+    give arg
+
+to list_processes
+    if is_windows()
+        give os_execute("tasklist")
+    give os_execute("ps aux")
+
+to kill_process process_name
+    sanitize_cli_arg(process_name)
+    if is_windows()
+        give os_execute("taskkill /F /IM " + process_name)
+    give os_execute("pkill -f " + process_name)
+
+to check_ping host
+    sanitize_cli_arg(host)
+    if is_windows()
+        give os_execute("ping -n 1 " + host)
+    give os_execute("ping -c 1 " + host)
+
+to get_system_info
+    if is_windows()
+        give os_execute("systeminfo")
+    elif is_macos()
+        give os_execute("sw_vers")
+    give os_execute("uname -a")

@@ -1,0 +1,46 @@
+to create_closure(val)
+    closed_val = "closed_" + str(val)
+    give lambda extra => closed_val + "_" + extra
+
+to test_closed_upvalue_persistence
+    c1 = create_closure(100)
+    c2 = create_closure(200)
+    
+    temp = []
+    i = 0
+    while i < 1000
+        temp.append("garbage_" + str(i))
+        i = i + 1
+    
+    r1 = c1("test")
+    r2 = c2("test")
+    
+    assert(r1 == "closed_100_test", "Closed upvalue c1 failed")
+    assert(r2 == "closed_200_test", "Closed upvalue c2 failed")
+
+to test_gc_high_volume_churn
+    outer_sum = 0
+    k = 0
+    while k < 50
+        inner_list = []
+        m = 0
+        while m < 100
+            inner_list.append({"index": m, "data": "item_" + str(m)})
+            m = m + 1
+        outer_sum = outer_sum + inner_list.len()
+        k = k + 1
+    
+    assert(outer_sum == 5000, "High volume churn sum failed")
+
+to test_gc_string_concatenation_churn
+    accum = ""
+    j = 0
+    while j < 200
+        accum = accum + "x"
+        j = j + 1
+    assert(accum.len() == 200, "String concat churn failed")
+
+test_closed_upvalue_persistence()
+test_gc_high_volume_churn()
+test_gc_string_concatenation_churn()
+say "GC tests passed"

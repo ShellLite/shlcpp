@@ -1,0 +1,87 @@
+to test_unicode_and_strings
+    s = "🚀 ShellLite 语言"
+    assert(s.len() > 0, "Unicode string length failed")
+    
+    alphabet = "ABCDE"
+    rev = alphabet[::-1]
+    assert(rev == "EDCBA", "String reverse slice failed")
+    
+    stride = alphabet[::2]
+    assert(stride == "ACE", "String stride slice failed")
+    
+    sub = alphabet[1:4]
+    assert(sub == "BCD", "String sub slice failed")
+    
+    s_quote = "He said \"hello\""
+    s_tab = "A\tB"
+    s_hex = "Hex: \x41\x42"
+    assert(s_hex == "Hex: AB", "Hex escape failed")
+    assert(len(s_tab) == 3, "Tab escape length failed")
+
+    greeting = "Hello World"
+    assert(greeting.upper() == "HELLO WORLD", "String upper failed")
+    assert(greeting.lower() == "hello world", "String lower failed")
+    assert(greeting.len() == 11, "String len method failed")
+
+to test_numbers_and_bitwise
+    big = 1e4
+    assert(big == 10000, "Scientific notation positive failed")
+    
+    small = 1e-2
+    assert(small == 0.01, "Scientific notation negative failed")
+    
+    a = 1 << 16
+    assert(a == 65536, "Bitwise shift left failed")
+    
+    b = 65536 >> 8
+    assert(b == 256, "Bitwise shift right failed")
+    
+    c = 255 & 15
+    assert(c == 15, "Bitwise AND failed")
+    
+    d = 240 | 15
+    assert(d == 255, "Bitwise OR failed")
+    
+    e = 255 ^ 15
+    assert(e == 240, "Bitwise XOR failed")
+
+to test_complex_precedence
+    res = (2 + 3 * 4 == 14) and (10 - 2 > 5)
+    assert(res == true, "Precedence check 1 failed")
+    
+    res2 = not (5 > 10) and ((4 & 4) == 4)
+    assert(res2 == true, "Precedence check 2 failed")
+    
+    res3 = (10 > 5) and (3 < 8) and not (2 == 3)
+    assert(res3 == true, "Logical chain failed")
+
+to test_nested_collection_mutation
+    matrix = [[1, 2], [3, 4]]
+    assert(matrix[0][0] == 1, "Matrix 0,0 failed")
+    assert(matrix[1][1] == 4, "Matrix 1,1 failed")
+    
+    matrix[0][1] = 99
+    assert(matrix[0][1] == 99, "Matrix element mutation failed")
+    
+    root = {"users": [{"name": "Alice", "roles": ["admin", "editor"]}]}
+    assert(root["users"][0]["roles"][0] == "admin", "Deep lookup failed")
+    
+    root["users"][0]["roles"][0] = "superadmin"
+    assert(root["users"][0]["roles"][0] == "superadmin", "Deep mutation failed")
+    
+    assert(root.has("users") == true, "Dict has method failed")
+    assert(root.has("nonexistent") == false, "Dict has false check failed")
+
+to test_type_conversions
+    n_str = convert 123 to "string"
+    assert(n_str == "123", "Convert number to string failed")
+    
+    s_num = convert "456" to "number"
+    assert(s_num == 456, "Convert string to number failed")
+
+test_unicode_and_strings()
+test_numbers_and_bitwise()
+test_complex_precedence()
+test_nested_collection_mutation()
+test_type_conversions()
+say "Types tests passed"

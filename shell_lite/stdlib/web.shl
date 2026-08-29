@@ -1,0 +1,21 @@
+# ShellLite Standard Web Library
+# Provides natural language web server functionality.
+# Usage: use "shell_lite/stdlib/web.shl"
+
+to when_someone_visits route, handler
+    std_web_on_request("get", route, handler)
+
+to when_someone_submits route, handler
+    std_web_on_request("post", route, handler)
+
+to when_someone_submits_to route, handler
+    std_web_on_request("post", route, handler)
+
+to serve_files_from directory, url
+    std_web_serve_static(url, directory)
+
+to start_server server_port
+    std_web_listen(server_port)
+
+to add_middleware handler
+    std_web_on_request("middleware", "__middleware__", handler)

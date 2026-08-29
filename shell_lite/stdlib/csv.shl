@@ -1,0 +1,27 @@
+# ShellLite Standard CSV Library
+# Provides robust CSV file processing, parsing, and serialization.
+# Usage: use "shell_lite/stdlib/csv.shl"
+
+to read_csv path
+    give csv_op("read", path)
+
+to write_csv path, data
+    give csv_op("write", path, data)
+
+to append_csv path, data
+    give csv_op("append", path, data)
+
+to parse_csv text
+    give csv_op("parse", text)
+
+to serialize_csv data
+    give csv_op("serialize", data)
+
+to count_csv_rows path
+    make rows = csv_op("read", path)
+    give len(rows)
+
+to filter_csv_column path, col_idx, value
+    make rows = csv_op("read", path)
+    make result = []
+    give rows

@@ -1,0 +1,100 @@
+# ShellLite Standard Math Library
+# Provides comprehensive mathematical, statistical, and trigonometric operations.
+
+to get_max a, b
+    give math_max(a, b)
+
+to get_min a, b
+    give math_min(a, b)
+
+to clamp_value val, min_val, max_val
+    give math_clamp(val, min_val, max_val)
+
+to lerp_value a, b, t
+    give math_lerp(a, b, t)
+
+to absolute value
+    give abs(value)
+
+to square value
+    give value * value
+
+to cube value
+    give value * value * value
+
+to sign value
+    if value > 0
+        give 1
+    elif value < 0
+        give -1
+    give 0
+
+to is_even value
+    make half = int(value / 2)
+    give (half * 2) == value
+
+to is_odd value
+    give not is_even(value)
+
+to power base, exp_val
+    give pow(base, exp_val)
+
+to factorial n
+    make result = 1
+    make current = 1
+    make i = 0
+    while i < n
+        result = result * current
+        current = current + 1
+        i = i + 1
+    give result
+
+to sum_list numbers
+    make total = 0
+    for num in numbers
+        total = total + num
+    give total
+
+to average_list numbers
+    make length = len(numbers)
+    if length == 0
+        give 0
+    give sum_list(numbers) / length
+
+to mean numbers
+    give average_list(numbers)
+
+to median numbers
+    make length = len(numbers)
+    if length == 0
+        give 0
+    make sorted_nums = list_sort(numbers)
+    make mid = int(length / 2)
+    if is_odd(length)
+        give sorted_nums[mid]
+    give (sorted_nums[mid - 1] + sorted_nums[mid]) / 2
+
+to variance numbers
+    make length = len(numbers)
+    if length <= 1
+        give 0
+    make avg = mean(numbers)
+    make total_sq = 0
+    for num in numbers
+        make diff = num - avg
+        total_sq = total_sq + (diff * diff)
+    give total_sq / length
+
+to std_dev numbers
+    give math_sqrt(variance(numbers))
+
+to radians deg
+    give deg * (PI / 180.0)
+
+to degrees rad
+    give rad * (180.0 / PI)
+
+to distance x1, y1, x2, y2
+    make dx = x2 - x1
+    make dy = y2 - y1
+    give math_sqrt((dx * dx) + (dy * dy))

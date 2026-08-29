@@ -1,0 +1,29 @@
+# ShellLite Standard Date & Time Library
+# Provides time measuring, formatting, and sleeping utilities.
+
+to get_timestamp
+    give std_time_now()
+
+to get_time_ms
+    give std_time_ms()
+
+to sleep_seconds s
+    std_time_sleep(s)
+
+to sleep_ms ms
+    std_time_sleep(ms / 1000.0)
+
+to format_time ts, fmt
+    give std_time_format(ts, fmt)
+
+to format_timestamp ts
+    give std_time_format(ts, "%Y-%m-%d %H:%M:%S")
+
+to get_current_datetime
+    give std_time_format(std_time_now(), "%Y-%m-%d %H:%M:%S")
+
+to get_current_date
+    give std_time_format(std_time_now(), "%Y-%m-%d")
+
+to get_current_time
+    give std_time_format(std_time_now(), "%H:%M:%S")

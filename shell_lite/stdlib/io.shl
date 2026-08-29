@@ -1,0 +1,62 @@
+# ShellLite Standard IO & File System Library
+# Provides comprehensive file system and path operations.
+
+to std_io_read path
+    give io_read(path)
+
+to std_io_write path, content
+    io_write(path, content)
+
+to std_io_append path, content
+    io_append(path, content)
+
+to std_io_exists path
+    give io_exists(path)
+
+to std_io_delete path
+    io_delete(path)
+
+to std_io_copy src, dest
+    io_copy(src, dest)
+
+to std_io_rename old_name, new_name
+    io_rename(old_name, new_name)
+
+to std_io_mkdir path
+    io_mkdir(path)
+
+to std_io_listdir path
+    give io_listdir(path)
+
+to read_text path
+    give std_io_read(path)
+
+to write_text path, content
+    std_io_write(path, content)
+
+to append_text path, content
+    std_io_append(path, content)
+
+to file_exists path
+    give std_io_exists(path)
+
+to join_paths a, b
+    give path_join(a, b)
+
+to get_filename path
+    give path_basename(path)
+
+to get_file_extension path
+    give path_extension(path)
+
+to get_directory path
+    give path_dirname(path)
+
+to get_file_size path
+    give file_size(path)
+
+to read_all_lines path
+    give read_lines(path)
+
+to write_all_lines path, lines_list
+    give write_lines(path, lines_list)

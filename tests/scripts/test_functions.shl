@@ -1,0 +1,83 @@
+to map(arr, mapper)
+    res = []
+    for x in arr
+        res.append(mapper(x))
+    give res
+
+to filter(arr, predicate)
+    res = []
+    for x in arr
+        if predicate(x)
+            res.append(x)
+    give res
+
+to fold_left(arr, accumulator, init_val)
+    acc = init_val
+    for x in arr
+        acc = accumulator(acc, x)
+    give acc
+
+to quicksort(arr)
+    if arr.len() <= 1
+        give arr
+    pivot = arr[0]
+    left = []
+    middle = []
+    right = []
+    for x in arr
+        if x < pivot
+            left.append(x)
+        elif x == pivot
+            middle.append(x)
+        else
+            right.append(x)
+    sorted_left = quicksort(left)
+    sorted_right = quicksort(right)
+    res = []
+    for a in sorted_left
+        res.append(a)
+    for b in middle
+        res.append(b)
+    for c in sorted_right
+        res.append(c)
+    give res
+
+to make_multiplier(factor)
+    give lambda x => x * factor
+
+to test_higher_order_functions
+    nums = [1, 2, 3, 4, 5]
+    doubled = map(nums, lambda x => x * 2)
+    assert(doubled[0] == 2, "Map 0 failed")
+    assert(doubled[4] == 10, "Map 4 failed")
+
+    evens = filter(nums, lambda x => x % 2 == 0)
+    assert(evens.len() == 2, "Filter len failed")
+    assert(evens[0] == 2, "Filter 0 failed")
+    assert(evens[1] == 4, "Filter 1 failed")
+
+    add_op = lambda a, b => a + b
+    sum_val = fold_left(nums, add_op, 0)
+    assert(sum_val == 15, "Reduce sum failed")
+
+to test_closure_currying
+    times_three = make_multiplier(3)
+    times_seven = make_multiplier(7)
+    assert(times_three(10) == 30, "Currying 3 * 10 failed")
+    assert(times_seven(5) == 35, "Currying 7 * 5 failed")
+
+to test_recursive_quicksort
+    unsorted = [34, 7, 23, 32, 5, 62]
+    sorted = quicksort(unsorted)
+    assert(sorted.len() == 6, "Quicksort len failed")
+    assert(sorted[0] == 5, "Quicksort 0 failed")
+    assert(sorted[1] == 7, "Quicksort 1 failed")
+    assert(sorted[2] == 23, "Quicksort 2 failed")
+    assert(sorted[3] == 32, "Quicksort 3 failed")
+    assert(sorted[4] == 34, "Quicksort 4 failed")
+    assert(sorted[5] == 62, "Quicksort 5 failed")
+
+test_higher_order_functions()
+test_closure_currying()
+test_recursive_quicksort()
+say "Functions tests passed"

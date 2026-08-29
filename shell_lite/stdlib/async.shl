@@ -1,0 +1,30 @@
+# ShellLite Standard Async Library
+# Provides natural language bindings for concurrency and synchronization.
+# Usage: use "shell_lite/stdlib/async.shl"
+
+to wait_for task
+    give task_await(task)
+
+to run_all tasks
+    give gather(tasks)
+
+to create_channel capacity
+    give chan_open(capacity)
+
+to send_message chan_obj, msg
+    give chan_send(chan_obj, msg)
+
+to receive_message chan_obj
+    give chan_recv(chan_obj)
+
+to acquire_lock lock_obj
+    give lock_acquire(lock_obj)
+
+to release_lock lock_obj
+    give lock_release(lock_obj)
+
+to sync_block lock_obj, action_task
+    lock_acquire(lock_obj)
+    make result = task_await(action_task)
+    lock_release(lock_obj)
+    give result

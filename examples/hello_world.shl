@@ -1,0 +1,5 @@
+# Hello World in shlcpp
+say "Hello, World!"
+
+name = ask "What is your name? "
+say "Welcome to shlcpp, " + name

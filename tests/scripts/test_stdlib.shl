@@ -1,0 +1,104 @@
+# JSON
+from "json" import json_is_valid, json_pretty, json_get, json_set, json_has, json_keys, json_values, json_write_file_pretty, json_read_file
+
+# Test json_is_valid
+assert(json_is_valid("{\"valid\": true}"), "json_is_valid failed on valid json")
+assert(not json_is_valid("{invalid json"), "json_is_valid returned true on invalid json")
+
+# Test json_pretty
+data_obj = {"title": "ShellLite", "version": 1, "nested": {"count": 42}}
+pretty_str = json_pretty(data_obj)
+assert(len(pretty_str) > 0, "json_pretty empty")
+
+# Test json_get and json_set
+assert(json_get(data_obj, "nested.count") == 42, "json_get failed on nested property")
+json_set(data_obj, "nested.count", 99)
+assert(json_get(data_obj, "nested.count") == 99, "json_set failed to update property")
+json_set(data_obj, "new.deep.value", "hello")
+assert(json_get(data_obj, "new.deep.value") == "hello", "json_set failed deep property creation")
+
+# Test json_has, json_keys, json_values
+assert(json_has(data_obj, "title"), "json_has failed")
+assert(not json_has(data_obj, "nonexistent"), "json_has returned true for missing key")
+keys = json_keys(data_obj)
+assert(len(keys) >= 2, "json_keys length mismatch")
+vals = json_values(data_obj)
+assert(len(vals) >= 2, "json_values length mismatch")
+
+# Test json_read_file and json_write_file
+test_json_file = "test_data_temp.json"
+json_write_file_pretty(test_json_file, data_obj)
+loaded_json = json_read_file(test_json_file)
+assert(loaded_json["title"] == "ShellLite", "json_read_file title mismatch")
+io_delete(test_json_file)
+
+# Math
+from "math" import mean, median, variance, std_dev, sign, distance
+
+# Trigonometry
+assert(sin(0) == 0, "sin(0) failed")
+assert(cos(0) == 1, "cos(0) failed")
+assert(round(sin(PI / 2)) == 1, "sin(PI/2) failed")
+
+# Statistical helpers
+num_list = [10, 20, 30, 40, 50]
+assert(mean(num_list) == 30, "mean failed")
+assert(median(num_list) == 30, "median odd failed")
+assert(median([10, 20, 30, 40]) == 25, "median even failed")
+assert(variance([10, 10, 10]) == 0, "variance failed")
+assert(std_dev([10, 10, 10]) == 0, "std_dev failed")
+assert(sign(-15) == -1, "sign negative failed")
+assert(sign(15) == 1, "sign positive failed")
+assert(sign(0) == 0, "sign zero failed")
+assert(distance(0, 0, 3, 4) == 5, "distance failed")
+
+# IO
+from "io" import join_paths, get_filename, get_file_extension, get_directory, write_all_lines, read_all_lines, get_file_size
+
+joined = join_paths("folder", "file.txt")
+assert(len(joined) > 0, "join_paths failed")
+assert(get_filename("folder/document.pdf") == "document.pdf", "get_filename failed")
+assert(get_file_extension("archive.tar.gz") == ".gz", "get_file_extension failed")
+assert(get_directory("folder/sub/doc.txt") == "folder/sub", "get_directory failed")
+
+# Line I/O
+lines_file = "test_lines_temp.txt"
+test_lines = ["Line 1", "Line 2", "Line 3"]
+write_all_lines(lines_file, test_lines)
+read_back_lines = read_all_lines(lines_file)
+assert(len(read_back_lines) == 3, "read_all_lines length mismatch")
+assert(read_back_lines[0] == "Line 1", "read_all_lines line 0 mismatch")
+assert(read_back_lines[2] == "Line 3", "read_all_lines line 2 mismatch")
+assert(get_file_size(lines_file) > 0, "get_file_size failed")
+std_io_delete(lines_file)
+
+# Strings
+assert(str_trim("   hello world   ") == "hello world", "str_trim failed")
+assert(str_upper("shell") == "SHELL", "str_upper failed")
+assert(str_lower("LITE") == "lite", "str_lower failed")
+assert(str_capitalize("hello") == "Hello", "str_capitalize failed")
+assert(str_starts_with("prefix_value", "prefix"), "str_starts_with failed")
+assert(str_ends_with("filename.shl", ".shl"), "str_ends_with failed")
+assert(str_replace("aaa bbb ccc", "bbb", "xxx") == "aaa xxx ccc", "str_replace failed")
+assert(str_pad_left("42", 5, "0") == "00042", "str_pad_left failed")
+assert(str_pad_right("42", 5, "0") == "42000", "str_pad_right failed")
+
+# Collections
+rev = list_reverse([1, 2, 3])
+assert(rev[0] == 3 and rev[2] == 1, "list_reverse failed")
+sorted_list = list_sort([5, 1, 4, 2, 3])
+assert(sorted_list[0] == 1 and sorted_list[4] == 5, "list_sort failed")
+
+# Time
+from "datetime" import get_timestamp, get_current_date, format_time
+ts = get_timestamp()
+assert(ts > 1700000000, "get_timestamp failed")
+date_str = get_current_date()
+assert(len(date_str) == 10, "get_current_date format mismatch")
+custom_fmt = format_time(ts, "%Y")
+assert(len(custom_fmt) == 4, "format_time failed")
+
+# Prelude load
+use "std"
+
+say "All expanded standard library tests passed!"

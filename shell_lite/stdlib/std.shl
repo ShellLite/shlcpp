@@ -1,0 +1,18 @@
+# ShellLite Prelude
+# This module automatically loads the core standard library for ShellLite.
+# It serves as the gateway to the massive standard library system.
+
+use "io"
+use "net"
+use "db"
+use "web"
+use "ui"
+use "csv"
+use "archive"
+use "async"
+use "os"
+use "math"
+use "json"
+use "html"
+use "automation"
+use "datetime"

@@ -1,0 +1,38 @@
+# ShellLite Standard Database Library
+# Provides natural language database operations.
+# Usage: use "shell_lite/stdlib/db.shl"
+
+to connect_database path
+    give std_db_open(path)
+
+to db_query sql
+    give std_db_query_rows(sql)
+
+to db_model name, schema
+    give std_db_model(name, schema)
+
+to db_insert data, table_name
+    give std_db_insert(table_name, data)
+
+to db_find_all table_name, search_query
+    give std_db_find(table_name, search_query, true)
+
+to db_find_one table_name, search_query
+    give std_db_find(table_name, search_query, false)
+
+to db_update table_name, search_query, data
+    give std_db_update(table_name, search_query, data)
+
+to db_delete table_name, search_query
+    give std_db_delete(table_name, search_query)
+
+to db_clear_table table_name
+    give std_db_delete(table_name, {})
+
+to db_insert_many table_name, records_list
+    make i = 0
+    make l = len(records_list)
+    while i < l
+        make record = records_list[i]
+        std_db_insert(table_name, record)
+        i = i + 1

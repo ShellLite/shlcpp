@@ -1,0 +1,17 @@
+to std_automation_click x, y
+    automation_click(x, y)
+
+to std_automation_type text
+    automation_type(text)
+
+to std_automation_press key
+    automation_press(key)
+
+to std_automation_notify title, message
+    automation_notify(title, message)
+
+to std_automation_copy text
+    clipboard_copy(text)
+
+to std_automation_paste
+    give clipboard_paste()

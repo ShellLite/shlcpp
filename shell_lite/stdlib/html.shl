@@ -1,0 +1,14 @@
+/* ShellLite Standard Library: HTML/UI Module
+   Provides natural language HTML widget construction.
+   Usage: use "stdlib/html.shl"
+
+   The parser automatically lowers indented HTML tag syntax
+   (html, head, body, div, span, etc.) into std_ui_widget() calls.
+   This module provides additional helpers for joining and rendering.
+*/
+
+to render_page(widget_tree)
+    give std_ui_join(widget_tree)
+
+to join_widgets(widgets)
+    give std_ui_join(widgets)

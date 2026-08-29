@@ -1,0 +1,46 @@
+structure BankAccount
+    has owner
+    has balance
+    to deposit(amount)
+        self.balance = self.balance + amount
+    to withdraw(amount)
+        if amount <= self.balance
+            self.balance = self.balance - amount
+            give true
+        give false
+
+structure Counter
+    has val
+    to increment
+        self.val = self.val + 1
+    to get_val
+        give self.val
+
+to test_bank_account
+    acc = new BankAccount("Alice", 1000)
+    
+    acc.deposit(500)
+    assert(acc.balance == 1500, "Deposit failed")
+    
+    ok = acc.withdraw(200)
+    assert(ok == true, "Withdraw success failed")
+    assert(acc.balance == 1300, "Balance after withdraw failed")
+    
+    ok_fail = acc.withdraw(5000)
+    assert(ok_fail == false, "Overdraw should fail")
+    assert(acc.balance == 1300, "Balance should remain unchanged")
+
+to test_multiple_instances
+    c1 = new Counter(0)
+    c2 = new Counter(10)
+    
+    c1.increment()
+    c1.increment()
+    c2.increment()
+    
+    assert(c1.get_val() == 2, "Counter 1 failed")
+    assert(c2.get_val() == 11, "Counter 2 failed")
+
+test_bank_account()
+test_multiple_instances()
+say "Structures tests passed"

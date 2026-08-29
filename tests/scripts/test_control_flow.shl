@@ -1,0 +1,135 @@
+to recurse_sum(n, acc)
+    if n <= 0
+        give acc
+    give recurse_sum(n - 1, acc + n)
+
+to is_even(n)
+    if n == 0
+        give true
+    give is_odd(n - 1)
+
+to is_odd(n)
+    if n == 0
+        give false
+    give is_even(n - 1)
+
+to factorial(n)
+    if n <= 1
+        give 1
+    give n * factorial(n - 1)
+
+to test_deep_recursion_stack_growth
+    total = recurse_sum(300, 0)
+    assert(total == 45150, "Deep recursion sum failed")
+    
+    fact = factorial(6)
+    assert(fact == 720, "Recursive factorial failed")
+
+to test_mutual_recursion
+    assert(is_even(50) == true, "is_even(50) failed")
+    assert(is_odd(51) == true, "is_odd(51) failed")
+    assert(is_even(51) == false, "is_even(51) should be false")
+
+to test_exceptions_try_catch
+    caught = false
+    err_msg = ""
+    try
+        throw "Custom runtime error"
+    catch err
+        caught = true
+        err_msg = err
+    assert(caught == true, "Exception was not caught")
+    assert(err_msg == "Custom runtime error", "Exception message mismatch")
+
+to test_try_early_return
+    to helper_try_return
+        try
+            give 99
+        catch e
+            give 0
+        give 10
+    
+    val = helper_try_return()
+    assert(val == 99, "Early return inside try failed")
+
+to test_loop_try_stop_skip
+    sum_val = 0
+    i = 0
+    while i < 10
+        i = i + 1
+        try
+            if i == 5
+                skip
+            if i == 8
+                stop
+            sum_val = sum_val + i
+        catch e
+            say "error"
+    
+    assert(sum_val == 23, "Loop with try/skip/stop failed")
+
+to test_closures_and_higher_order
+    to make_adder(base)
+        give lambda x => x + base
+
+    add_ten = make_adder(10)
+    assert(add_ten(5) == 15, "Closure add_ten failed")
+    assert(add_ten(20) == 30, "Closure add_ten with 20 failed")
+
+    funcs = []
+    for k in [1, 2, 3]
+        f = lambda x => x * k
+        funcs.append(f)
+    assert(funcs.len() == 3, "Functions array length failed")
+
+to test_check_ensure
+    x = 100
+    check x > 50
+    ensure x == 100
+
+to test_unless_block
+    flag = false
+    ran = false
+    unless flag
+        ran = true
+    assert(ran == true, "Unless condition failed")
+
+to test_nested_conditionals_with_colons
+    score = 75
+    grade = ""
+    if score >= 90:
+        grade = "A"
+    elif score >= 70:
+        if score >= 80:
+            grade = "B"
+        else:
+            grade = "C"
+    else:
+        grade = "F"
+    assert(grade == "C", "Nested conditionals with colons failed")
+
+to test_try_catch_finally
+    log = []
+    try
+        log.append("try")
+        throw "err"
+    catch e
+        log.append("catch")
+    finally
+        log.append("finally")
+    assert(log.len() == 3, "Finally log len failed")
+    assert(log[0] == "try", "Log 0 failed")
+    assert(log[1] == "catch", "Log 1 failed")
+    assert(log[2] == "finally", "Log 2 failed")
+
+test_deep_recursion_stack_growth()
+test_mutual_recursion()
+test_exceptions_try_catch()
+test_try_early_return()
+test_loop_try_stop_skip()
+test_closures_and_higher_order()
+test_check_ensure()
+test_unless_block()
+test_nested_conditionals_with_colons()
+test_try_catch_finally()
+say "Control flow tests passed"

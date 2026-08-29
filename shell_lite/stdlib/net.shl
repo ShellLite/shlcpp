@@ -1,0 +1,18 @@
+# ShellLite Standard Network Library
+# Provides network requests and file downloading.
+# Usage: use "shell_lite/stdlib/net.shl"
+
+to http_get url
+    give std_net_get(url)
+
+to http_post url, data
+    give std_net_post(url, data)
+
+to download_file url
+    give std_net_download(url)
+
+to fetch_json url
+    give std_net_get(url)
+
+to ping_server host
+    give os_execute("ping -n 1 " + host)

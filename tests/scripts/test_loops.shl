@@ -1,0 +1,125 @@
+to test_nested_loops_matrix_multiplication
+    mat_a = [
+        [1, 2],
+        [3, 4]
+    ]
+    mat_b = [
+        [5, 6],
+        [7, 8]
+    ]
+    res = [
+        [0, 0],
+        [0, 0]
+    ]
+
+    for i in [0, 1]
+        for j in [0, 1]
+            sum_val = 0
+            for k in [0, 1]
+                sum_val = sum_val + mat_a[i][k] * mat_b[k][j]
+            res[i][j] = sum_val
+
+    assert(res[0][0] == 19, "MatMul [0][0] failed")
+    assert(res[0][1] == 22, "MatMul [0][1] failed")
+    assert(res[1][0] == 43, "MatMul [1][0] failed")
+    assert(res[1][1] == 50, "MatMul [1][1] failed")
+
+to test_stop_and_skip_controls
+    accum = []
+    for x in [1, 2, 3, 4, 5, 6, 7, 8]
+        if x == 3
+            skip
+        if x == 6
+            stop
+        accum.append(x)
+
+    assert(accum.len() == 4, "Stop/skip len failed")
+    assert(accum[0] == 1, "Item 0 failed")
+    assert(accum[1] == 2, "Item 1 failed")
+    assert(accum[2] == 4, "Item 2 failed")
+    assert(accum[3] == 5, "Item 3 failed")
+
+to test_until_and_repeat_loops
+    count_val = 0
+    until count_val == 5
+        count_val = count_val + 1
+    assert(count_val == 5, "Until loop failed")
+
+    repeat_val = 0
+    repeat 4
+        repeat_val = repeat_val + 3
+    assert(repeat_val == 12, "Repeat loop failed")
+
+to test_string_and_dict_iteration
+    char_list = []
+    for ch in "Shell"
+        char_list.append(ch)
+    assert(char_list.len() == 5, "String char iteration len failed")
+    assert(char_list[0] == "S", "Char 0 failed")
+    assert(char_list[4] == "l", "Char 4 failed")
+
+    user_info = {"alice": 10, "bob": 20, "charlie": 30}
+    key_count = 0
+    for k in user_info
+        if user_info.has(k)
+            key_count = key_count + 1
+    assert(key_count == 3, "Dict iteration key count failed")
+
+to test_forever_loop
+    x = 0
+    forever
+        x += 1
+        if x == 10
+            stop
+    assert(x == 10, "Forever loop break failed")
+
+to test_nested_loop_break_scope
+    outer_count = 0
+    inner_total = 0
+    for i in [1, 2, 3]
+        outer_count += 1
+        for j in [10, 20, 30]
+            inner_total += j
+            if j == 20
+                stop
+    assert(outer_count == 3, "Outer count broken prematurely")
+    assert(inner_total == 90, "Inner total sum failed")
+
+to test_loop_inplace_operators
+    acc = 1
+    for x in [2, 3, 4]
+        acc *= x
+    assert(acc == 24, "Acc *= failed")
+
+to test_for_range_iteration
+    sum_r = 0
+    for n in range(1, 6)
+        sum_r += n
+    assert(sum_r == 15, "Range iteration failed")
+
+to test_while_complex_condition
+    a = 10
+    b = 0
+    while a > 0 and b < 5
+        a -= 2
+        b += 1
+    assert(a == 0, "While a value failed")
+    assert(b == 5, "While b value failed")
+
+to test_repeat_times_syntax
+    steps = 0
+    repeat 6 times
+        steps += 1
+    assert(steps == 6, "Repeat times syntax failed")
+
+test_nested_loops_matrix_multiplication()
+test_stop_and_skip_controls()
+test_until_and_repeat_loops()
+test_string_and_dict_iteration()
+test_forever_loop()
+test_nested_loop_break_scope()
+test_loop_inplace_operators()
+test_for_range_iteration()
+test_while_complex_condition()
+test_repeat_times_syntax()
+say "Loops tests passed"
