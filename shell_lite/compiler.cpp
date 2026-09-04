@@ -28,6 +28,15 @@ struct CompilerState {
     function->name = name;
     function->source_file = source_file;
     locals.push_back({"", 0});
+    if (vm && function) {
+      vm->arena().push_temp_root(function);
+    }
+  }
+
+  ~CompilerState() {
+    if (vm && function) {
+      vm->arena().remove_temp_root(function);
+    }
   }
 };
 
@@ -433,10 +442,11 @@ public:
     func->upvalue_count = (int)state->upvalues.size();
     std::vector<Upvalue> uvs = state->upvalues;
     state = old;
+    uint16_t const_idx = make_constant(Value(func));
     delete sub;
 
     emit_byte(OP_CLOSURE);
-    emit_short(make_constant(Value(func)));
+    emit_short(const_idx);
     for (auto &uv : uvs) {
       emit_byte(uv.is_local ? 1 : 0);
       emit_short(uv.index);
@@ -1035,9 +1045,10 @@ public:
     func->upvalue_count = (int)state->upvalues.size();
     std::vector<Upvalue> uvs = state->upvalues;
     state = old;
+    uint16_t const_idx = make_constant(Value(func));
     delete sub;
     emit_byte(OP_CLOSURE);
-    emit_short(make_constant(Value(func)));
+    emit_short(const_idx);
     for (auto &uv : uvs) {
       emit_byte(uv.is_local ? 1 : 0);
       emit_short(uv.index);
@@ -1243,10 +1254,11 @@ public:
       func->upvalue_count = (int)state->upvalues.size();
       std::vector<Upvalue> uvs = state->upvalues;
       state = old;
+      uint16_t const_idx = make_constant(Value(func));
       delete sub;
 
       emit_byte(OP_CLOSURE);
-      emit_short(make_constant(Value(func)));
+      emit_short(const_idx);
       for (auto &uv : uvs) {
         emit_byte(uv.is_local ? 1 : 0);
         emit_short(uv.index);

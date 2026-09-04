@@ -12,7 +12,7 @@ namespace shell_lite {
 
 class Arena {
 public:
-    static constexpr size_t DEFAULT_ARENA_CHUNK_SIZE = 1024 * 1024; // 1MB default chunk size
+    static constexpr size_t DEFAULT_ARENA_CHUNK_SIZE = 64 * 1024;
 
     explicit Arena(size_t chunk_size = DEFAULT_ARENA_CHUNK_SIZE) : chunk_size_(chunk_size) {
         alloc_chunk();
@@ -80,6 +80,7 @@ private:
         chunks_.push_back(chunk);
         current_ptr_ = chunk;
         end_ptr_ = chunk + cap;
+        chunk_size_ = (std::min)(chunk_size_ * 2, static_cast<size_t>(1024 * 1024));
     }
 
     size_t remaining_capacity() const {

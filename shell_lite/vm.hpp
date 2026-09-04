@@ -107,6 +107,7 @@ public:
     uint8_t read_byte();
     uint16_t read_short();
     Value read_constant();
+    const std::string& read_string_ref();
     std::string read_string();
 
 private:

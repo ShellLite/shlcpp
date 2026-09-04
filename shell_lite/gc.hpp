@@ -73,16 +73,57 @@ public:
     void collect();
     void transfer_to(GCArena& target);
 
+    void push_temp_root(GCObject* obj);
+    void remove_temp_root(GCObject* obj);
+
 private:
     void collect_internal();
 
     GCObject* first_object_ = nullptr;
     std::unordered_map<std::string, ObjString*> strings_;
+    std::vector<GCObject*> temp_roots_;
     VM* vm_;
 
     size_t bytes_allocated_;
     size_t next_gc_;
     std::recursive_mutex gc_mutex_;
+};
+
+class GCRootGuard {
+public:
+    explicit GCRootGuard(GCArena& arena, GCObject* obj = nullptr)
+        : arena_(&arena), obj_(obj) {
+        if (arena_ && obj_) arena_->push_temp_root(obj_);
+    }
+    ~GCRootGuard() {
+        if (arena_ && obj_) arena_->remove_temp_root(obj_);
+    }
+    void reset(GCObject* new_obj) {
+        if (arena_ && obj_) arena_->remove_temp_root(obj_);
+        obj_ = new_obj;
+        if (arena_ && obj_) arena_->push_temp_root(obj_);
+    }
+    GCObject* get() const { return obj_; }
+
+    GCRootGuard(const GCRootGuard&) = delete;
+    GCRootGuard& operator=(const GCRootGuard&) = delete;
+    GCRootGuard(GCRootGuard&& o) noexcept : arena_(o.arena_), obj_(o.obj_) {
+        o.arena_ = nullptr;
+        o.obj_ = nullptr;
+    }
+    GCRootGuard& operator=(GCRootGuard&& o) noexcept {
+        if (this != &o) {
+            if (arena_ && obj_) arena_->remove_temp_root(obj_);
+            arena_ = o.arena_;
+            obj_ = o.obj_;
+            o.arena_ = nullptr;
+            o.obj_ = nullptr;
+        }
+        return *this;
+    }
+private:
+    GCArena* arena_;
+    GCObject* obj_;
 };
 
 }

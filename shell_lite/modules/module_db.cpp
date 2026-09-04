@@ -139,8 +139,10 @@ void register_stdlib_db(VM* vm) {
         }
 
         auto result_list = vm->arena().allocate<ObjList>();
+        GCRootGuard res_guard(vm->arena(), result_list);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             auto row_dict = vm->arena().allocate<ObjDict>();
+            result_list->elements.push_back(Value(row_dict));
             int cols = sqlite3_column_count(stmt);
             for (int i = 0; i < cols; ++i) {
                 std::string col_name = sqlite3_column_name(stmt, i);
@@ -153,7 +155,6 @@ void register_stdlib_db(VM* vm) {
                 }
                 else row_dict->elements[col_name] = Value();
             }
-            result_list->elements.push_back(Value(row_dict));
         }
         sqlite3_finalize(stmt);
         return Value(result_list);
@@ -254,6 +255,7 @@ void register_stdlib_db(VM* vm) {
         }
         sqlite3_stmt* stmt = nullptr;
         auto result_list = vm->arena().allocate<ObjList>();
+        GCRootGuard res_guard(vm->arena(), result_list);
         if (sqlite3_prepare_v2(conn, q.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
             int idx = 1;
             for (auto& val : where_info.second) {
@@ -265,6 +267,7 @@ void register_stdlib_db(VM* vm) {
 
             while (sqlite3_step(stmt) == SQLITE_ROW) {
                 auto row_dict = vm->arena().allocate<ObjDict>();
+                result_list->elements.push_back(Value(row_dict));
                 int cols = sqlite3_column_count(stmt);
                 for (int i = 0; i < cols; ++i) {
                     std::string col_name = sqlite3_column_name(stmt, i);
@@ -277,7 +280,6 @@ void register_stdlib_db(VM* vm) {
                     }
                     else row_dict->elements[col_name] = Value();
                 }
-                result_list->elements.push_back(Value(row_dict));
             }
             sqlite3_finalize(stmt);
         } else {

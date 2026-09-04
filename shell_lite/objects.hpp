@@ -131,6 +131,7 @@ struct ObjIterator : public GCObject {
       : GCObject(ObjType::ITERATOR), iterable(iter), index(0) {
     if (iterable.is_dict()) {
       auto* dict = static_cast<ObjDict*>(iterable.get_obj());
+      dict_keys.reserve(dict->elements.size());
       for (const auto& pair : dict->elements) {
         dict_keys.push_back(pair.first);
       }

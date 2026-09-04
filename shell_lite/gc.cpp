@@ -106,6 +106,23 @@ void GCArena::transfer_to(GCArena& target) {
     strings_.clear();
 }
 
+void GCArena::push_temp_root(GCObject* obj) {
+    if (!obj) return;
+    std::lock_guard<std::recursive_mutex> lock(gc_mutex_);
+    temp_roots_.push_back(obj);
+}
+
+void GCArena::remove_temp_root(GCObject* obj) {
+    if (!obj) return;
+    std::lock_guard<std::recursive_mutex> lock(gc_mutex_);
+    for (auto it = temp_roots_.rbegin(); it != temp_roots_.rend(); ++it) {
+        if (*it == obj) {
+            temp_roots_.erase((it + 1).base());
+            return;
+        }
+    }
+}
+
 static size_t get_object_live_bytes(GCObject* obj) {
     if (!obj) return 0;
     size_t sz = get_object_size(obj);
@@ -161,6 +178,12 @@ void GCArena::collect_internal() {
 
     if (vm_) {
         vm_->mark_roots();
+    }
+
+    for (GCObject* root : temp_roots_) {
+        if (root) {
+            Value(root).mark();
+        }
     }
 
     GCObject* prev = nullptr;

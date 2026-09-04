@@ -18,6 +18,16 @@ else()
     add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
 endif()
 
+option(SHL_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+if(SHL_ENABLE_ASAN)
+    if(MSVC)
+        add_compile_options(/fsanitize=address)
+    else()
+        add_compile_options(-fsanitize=address,undefined)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+endif()
+
 include(FetchContent)
 
 # ------------------------------------------------------------------------------
@@ -176,30 +186,40 @@ set(SOURCES
 # ------------------------------------------------------------------------------
 # 3. Executable and Library Targets
 # ------------------------------------------------------------------------------
-add_executable(shell_lite_exec ${SOURCES})
+add_library(shell_lite_core OBJECT ${SOURCES})
+set_target_properties(shell_lite_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+target_include_directories(shell_lite_core PUBLIC 
+    shell_lite
+    ${sqlite3_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(shell_lite_core PUBLIC libcurl clip SDL2-static httplib zip SQLite3)
+if(WIN32)
+    target_link_libraries(shell_lite_core PUBLIC ws2_32 user32 gdi32)
+endif()
+
+add_executable(shell_lite_exec $<TARGET_OBJECTS:shell_lite_core>)
 target_include_directories(shell_lite_exec PRIVATE 
     shell_lite
     ${sqlite3_SOURCE_DIR}
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
-
 target_link_libraries(shell_lite_exec PRIVATE libcurl clip SDL2-static httplib zip SQLite3)
 
 if(WIN32)
     target_link_libraries(shell_lite_exec PRIVATE ws2_32 user32 gdi32)
 endif()
 
-add_library(shell_lite_lib SHARED ${SOURCES})
-
+add_library(shell_lite_lib SHARED $<TARGET_OBJECTS:shell_lite_core>)
 target_include_directories(shell_lite_lib PRIVATE 
     shell_lite
     ${sqlite3_SOURCE_DIR}
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
-
 target_link_libraries(shell_lite_lib PRIVATE libcurl clip SDL2-static httplib zip SQLite3)
 
 if(WIN32)

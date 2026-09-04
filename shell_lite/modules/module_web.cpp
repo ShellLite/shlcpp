@@ -43,23 +43,27 @@ static bool match_route_pattern(const std::string& pattern, const std::string& a
 static Value build_request_dict(VM* vm, const httplib::Request& req,
                                 const std::unordered_map<std::string, std::string>& params) {
     auto* d = vm->arena().allocate<ObjDict>();
+    GCRootGuard guard_d(vm->arena(), d);
     d->elements["method"] = Value(vm->arena().allocate_string(req.method));
     d->elements["path"] = Value(vm->arena().allocate_string(req.path));
     d->elements["body"] = Value(vm->arena().allocate_string(req.body));
 
     auto* p_dict = vm->arena().allocate<ObjDict>();
+    GCRootGuard guard_p(vm->arena(), p_dict);
     for (const auto& pair : params) {
         p_dict->elements[pair.first] = Value(vm->arena().allocate_string(pair.second));
     }
     d->elements["params"] = Value(p_dict);
 
     auto* q_dict = vm->arena().allocate<ObjDict>();
+    GCRootGuard guard_q(vm->arena(), q_dict);
     for (const auto& pair : req.params) {
         q_dict->elements[pair.first] = Value(vm->arena().allocate_string(pair.second));
     }
     d->elements["query"] = Value(q_dict);
 
     auto* h_dict = vm->arena().allocate<ObjDict>();
+    GCRootGuard guard_h(vm->arena(), h_dict);
     for (const auto& pair : req.headers) {
         h_dict->elements[pair.first] = Value(vm->arena().allocate_string(pair.second));
     }

@@ -178,6 +178,7 @@ ObjModule *VM::load_module(const std::string &path) {
 
   if (path == "random") {
     auto *mod = arena_.allocate<ObjModule>();
+    GCRootGuard mod_guard(arena_, mod);
     mod->name = "random";
     mod->globals["random"] = make_native(0, [](VM *vm, int arg_count) -> Value {
       static thread_local std::mt19937 rng(std::random_device{}());
@@ -217,6 +218,7 @@ ObjModule *VM::load_module(const std::string &path) {
   }
   if (path == "time") {
     auto *mod = arena_.allocate<ObjModule>();
+    GCRootGuard mod_guard(arena_, mod);
     mod->name = "time";
     mod->globals["time"] = make_native(0, [](VM *vm, int arg_count) -> Value {
       auto now = std::chrono::system_clock::now();
@@ -260,6 +262,7 @@ ObjModule *VM::load_module(const std::string &path) {
   }
   if (path == "subprocess") {
     auto *mod = arena_.allocate<ObjModule>();
+    GCRootGuard mod_guard(arena_, mod);
     mod->name = "subprocess";
     mod->globals["run"] = make_native(-1, [](VM *vm, int arg_count) -> Value {
       if (arg_count >= 1) {
@@ -340,9 +343,11 @@ ObjModule *VM::load_module(const std::string &path) {
     }
 
     auto *closure = arena_.allocate<ObjClosure>(function);
+    GCRootGuard closure_guard(arena_, closure);
     closure->module_globals = globals;
 
     auto *module = arena_.allocate<ObjModule>();
+    GCRootGuard module_guard(arena_, module);
     module->name = fs::path(abs_path).stem().string();
 
     module_cache[abs_path] = module;
@@ -486,7 +491,12 @@ uint16_t VM::read_short() {
 Value VM::read_constant() {
   return frames.back().closure->function->chunk->constants[read_short()];
 }
-std::string VM::read_string() { return read_constant().as_string(); }
+const std::string& VM::read_string_ref() {
+  uint16_t idx = read_short();
+  const Value& val = frames.back().closure->function->chunk->constants[idx];
+  return val.as_string();
+}
+std::string VM::read_string() { return read_string_ref(); }
 
 bool VM::call(ObjClosure *closure, int arg_count) {
   if (closure->function->arity >= 0 && arg_count != closure->function->arity) {
@@ -689,7 +699,7 @@ Value VM::run(int target_frame_depth) {
       frames.back().slots[read_short()] = peek(0);
       break;
     case OP_GET_GLOBAL: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       std::shared_ptr<GlobalsTable> target_globals = globals;
       if (!frames.empty() && frames.back().closure &&
           frames.back().closure->module_globals) {
@@ -717,7 +727,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_DEFINE_GLOBAL: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       std::shared_ptr<GlobalsTable> target_globals = globals;
       if (!frames.empty() && frames.back().closure &&
           frames.back().closure->module_globals) {
@@ -728,7 +738,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_SET_GLOBAL: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       std::shared_ptr<GlobalsTable> target_globals = globals;
       if (!frames.empty() && frames.back().closure &&
           frames.back().closure->module_globals) {
@@ -1255,13 +1265,13 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_PROPERTY: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       ObjClass *klass = static_cast<ObjClass *>(peek(0).get_obj());
       klass->default_fields.push_back(name);
       break;
     }
     case OP_GET_SELF_PROPERTY: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       Value self_val = frames.back().slots[0];
       if (self_val.is_instance()) {
         ObjInstance *instance = static_cast<ObjInstance *>(self_val.get_obj());
@@ -1284,7 +1294,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_SET_SELF_PROPERTY: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       Value val = peek(0);
       Value self_val = frames.back().slots[0];
       if (self_val.is_instance()) {
@@ -1300,7 +1310,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_GET_PROPERTY: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       Value receiver = pop();
       if (receiver.is_instance()) {
         ObjInstance *instance = static_cast<ObjInstance *>(receiver.get_obj());
@@ -1340,7 +1350,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_SET_PROPERTY: {
-      std::string name = read_string();
+      const std::string &name = read_string_ref();
       Value val = pop();
       Value receiver = pop();
       if (receiver.is_instance()) {
@@ -1361,7 +1371,7 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_INVOKE: {
-      std::string method_name = read_string();
+      const std::string &method_name = read_string_ref();
       uint8_t arg_count = read_byte();
       Value receiver = peek(arg_count);
       if (receiver.is_instance()) {
@@ -1439,6 +1449,7 @@ Value VM::run(int target_frame_depth) {
         ObjDict *dict = static_cast<ObjDict *>(receiver.get_obj());
         if (method_name == "keys") {
           ObjList *keys_list = arena_.allocate<ObjList>();
+          GCRootGuard guard(arena_, keys_list);
           for (auto &p : dict->elements) {
             keys_list->elements.push_back(
                 Value(arena_.allocate_string(p.first)));
@@ -1447,6 +1458,7 @@ Value VM::run(int target_frame_depth) {
           push(Value(keys_list));
         } else if (method_name == "values") {
           ObjList *vals_list = arena_.allocate<ObjList>();
+          GCRootGuard guard(arena_, vals_list);
           for (auto &p : dict->elements) {
             vals_list->elements.push_back(p.second);
           }
@@ -1656,6 +1668,7 @@ Value VM::run(int target_frame_depth) {
       auto promise = std::make_shared<std::promise<std::string>>();
       std::shared_future<std::string> future = promise->get_future();
       auto *task = arena_.allocate<ObjTask>(future);
+      GCRootGuard task_guard(arena_, task);
 
       {
         std::shared_lock<std::shared_mutex> lock(globals->mutex);
@@ -1666,25 +1679,24 @@ Value VM::run(int target_frame_depth) {
         }
       }
 
+      auto worker = std::make_shared<VM>(this->globals);
+      std::unordered_map<GCObject *, GCObject *> clones;
+      Value isolated_callee = callee.clone_val(worker->arena(), clones);
+      std::vector<Value> isolated_args;
+      isolated_args.reserve(args.size());
+      for (const auto &arg : args) {
+        isolated_args.push_back(arg.clone_val(worker->arena(), clones));
+      }
+
       concurrency::get_global_thread_pool().enqueue(
-          [this, callee, args, promise, arg_count]() {
-            VM worker(this->globals);
-
-            std::unordered_map<GCObject *, GCObject *> clones;
-            Value isolated_callee = callee.clone_val(worker.arena(), clones);
-            std::vector<Value> isolated_args;
-            isolated_args.reserve(args.size());
-            for (const auto &arg : args) {
-              isolated_args.push_back(arg.clone_val(worker.arena(), clones));
-            }
-
-            worker.push(isolated_callee);
+          [worker, isolated_callee, isolated_args, promise, arg_count]() {
+            worker->push(isolated_callee);
             for (const auto &arg : isolated_args)
-              worker.push(arg);
+              worker->push(arg);
 
             Value res;
-            if (worker.call_value(isolated_callee, arg_count)) {
-              res = worker.run();
+            if (worker->call_value(isolated_callee, arg_count)) {
+              res = worker->run();
             }
             std::ostringstream ss(std::ios::binary);
             serialize_value(ss, res);
