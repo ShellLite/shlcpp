@@ -24,6 +24,7 @@ struct ObjString : public GCObject {
                   std::unordered_map<GCObject *, GCObject *> &clones) override;
 };
 
+// file stream on disk, cant pass this to other threads
 struct ObjFile : public GCObject {
   std::ifstream stream;
   std::string path;
@@ -54,6 +55,7 @@ struct ObjDatabase : public GCObject {
                   std::unordered_map<GCObject *, GCObject *> &clones) override;
 };
 
+// async task waiting on a future until work is cooked
 struct ObjTask : public GCObject {
   std::shared_future<std::string> future;
   bool completed;
@@ -63,23 +65,42 @@ struct ObjTask : public GCObject {
       : GCObject(ObjType::TASK), future(std::move(f)), completed(false) {}
   GCObject *clone(GCArena &target,
                   std::unordered_map<GCObject *, GCObject *> &clones) override {
-    return this;
+    if (clones.count(this)) return clones[this];
+    auto *t = target.allocate<ObjTask>(future);
+    clones[this] = t;
+    if (completed) {
+      t->completed = true;
+      t->result = result.clone_val(target, clones);
+    }
+    return t;
   }
 };
 
-struct ObjLock : public GCObject {
+// shared mutex and lock counter so cloned locks share the same lock
+struct LockState {
   std::recursive_mutex mutex;
   std::atomic<std::thread::id> owner{std::thread::id{}};
   std::atomic<int> lock_count{0};
+};
 
-  ObjLock() : GCObject(ObjType::LOCK) {}
+struct ObjLock : public GCObject {
+  std::shared_ptr<LockState> state;
+
+  ObjLock()
+      : GCObject(ObjType::LOCK), state(std::make_shared<LockState>()) {}
+  explicit ObjLock(std::shared_ptr<LockState> s)
+      : GCObject(ObjType::LOCK), state(std::move(s)) {}
   void mark_children() override {}
   GCObject *clone(GCArena &target,
                   std::unordered_map<GCObject *, GCObject *> &clones) override {
-    return this;
+    if (clones.count(this)) return clones[this];
+    auto *l = target.allocate<ObjLock>(state);
+    clones[this] = l;
+    return l;
   }
 };
 
+// thread safe queue and condvar for channel messages
 struct ChannelState {
   std::mutex mutex;
   std::condition_variable cv;
@@ -166,6 +187,7 @@ struct ObjFunction : public Callable {
   static ObjFunction* deserialize(std::istream& in, GCArena& arena);
 };
 
+// captured local variable on stack or copied to heap
 struct ObjUpvalue : public GCObject {
   Value *location;
   Value closed;
@@ -179,6 +201,26 @@ struct ObjUpvalue : public GCObject {
 };
 
 struct GlobalsTable;
+
+// remap module globals so cloned workers dont step on each other
+class TableCloneScope {
+public:
+  TableCloneScope(GCArena &target,
+                  std::unordered_map<GCObject *, GCObject *> &clones);
+  ~TableCloneScope();
+
+  void map_table(GlobalsTable *source, std::shared_ptr<GlobalsTable> target);
+  std::shared_ptr<GlobalsTable>
+  get_or_clone_table(const std::shared_ptr<GlobalsTable> &source);
+
+  static TableCloneScope *current();
+
+private:
+  GCArena &target_;
+  std::unordered_map<GCObject *, GCObject *> &clones_;
+  std::unordered_map<GlobalsTable *, std::shared_ptr<GlobalsTable>> table_map_;
+  TableCloneScope *prev_;
+};
 
 struct ObjClosure : public Callable {
   ObjFunction *function;

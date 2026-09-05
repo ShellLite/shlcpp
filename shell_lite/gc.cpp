@@ -9,6 +9,7 @@ namespace shell_lite {
 
 static thread_local GCArena* g_current_arena = nullptr;
 
+// cache starting threshold from env or default
 size_t GCArena::get_initial_gc_threshold() {
     const char* env = std::getenv("SHL_GC_THRESHOLD");
     if (env) {
@@ -20,7 +21,11 @@ size_t GCArena::get_initial_gc_threshold() {
     return DEFAULT_INITIAL_GC_THRESHOLD;
 }
 
-GCArena::GCArena(VM* vm) : vm_(vm), bytes_allocated_(0), next_gc_(get_initial_gc_threshold()) {
+GCArena::GCArena(VM* vm)
+    : vm_(vm),
+      bytes_allocated_(0),
+      initial_gc_threshold_(get_initial_gc_threshold()),
+      next_gc_(initial_gc_threshold_) {
     g_current_arena = this;
 }
 
@@ -42,7 +47,7 @@ static size_t get_object_size(GCObject* obj) {
         case ObjType::ITERATOR: return sizeof(ObjIterator);
         case ObjType::UPVALUE: return sizeof(ObjUpvalue);
         case ObjType::DATABASE: return sizeof(ObjDatabase);
-        case ObjType::LOCK: return sizeof(GCObject);
+        case ObjType::LOCK: return sizeof(ObjLock);
         default: return sizeof(GCObject);
     }
 }
@@ -53,6 +58,7 @@ GCArena::~GCArena() {
     }
 }
 
+// thread-local fallback when running without explicit vm
 GCArena& GCArena::instance() {
     if (!g_current_arena) {
         static thread_local GCArena fallback_arena(nullptr);
@@ -67,6 +73,7 @@ ObjString* GCArena::allocate_string(const std::string& str) {
     return allocate<ObjString>(str);
 }
 
+// deduplicate string via arena intern table
 ObjString* GCArena::intern(const std::string& str) {
     std::lock_guard<std::recursive_mutex> lock(gc_mutex_);
     auto it = strings_.find(str);
@@ -82,6 +89,7 @@ void GCArena::collect() {
     collect_internal();
 }
 
+// hand off heap objects and interned strings to target arena
 void GCArena::transfer_to(GCArena& target) {
     if (this == &target) return;
     std::scoped_lock lock(gc_mutex_, target.gc_mutex_);
@@ -106,6 +114,7 @@ void GCArena::transfer_to(GCArena& target) {
     strings_.clear();
 }
 
+// guard unanchored object so gc doesn't nuke it mid-allocation -_-
 void GCArena::push_temp_root(GCObject* obj) {
     if (!obj) return;
     std::lock_guard<std::recursive_mutex> lock(gc_mutex_);
@@ -171,6 +180,7 @@ static size_t get_object_live_bytes(GCObject* obj) {
     return sz;
 }
 
+// full mark-sweep pass: clear marks, trace roots, sweep dead objects and bump threshold
 void GCArena::collect_internal() {
     for (GCObject* obj = first_object_; obj != nullptr; obj = obj->next_gc) {
         obj->marked = false;
@@ -186,16 +196,26 @@ void GCArena::collect_internal() {
         }
     }
 
+    size_t live_bytes = 0;
+
+    // clean dead interned strings BEFORE sweep so we don't use-after-free freed strings -_-
+    for (auto it = strings_.begin(); it != strings_.end(); ) {
+        if (!it->second->marked) {
+            it = strings_.erase(it);
+        } else {
+            live_bytes += it->first.capacity();
+            ++it;
+        }
+    }
+
+    // sweep dead objects from intrusive list and reclaim memory
     GCObject* prev = nullptr;
     GCObject* curr = first_object_;
-    size_t new_object_count = 0;
-    size_t live_bytes = 0;
     while (curr != nullptr) {
         if (curr->marked) {
             live_bytes += get_object_live_bytes(curr);
             prev = curr;
             curr = curr->next_gc;
-            new_object_count++;
         } else {
             GCObject* unreached = curr;
             curr = curr->next_gc;
@@ -208,16 +228,8 @@ void GCArena::collect_internal() {
         }
     }
 
-    for (auto it = strings_.begin(); it != strings_.end(); ) {
-        if (!it->second->marked) it = strings_.erase(it);
-        else {
-            live_bytes += it->first.capacity();
-            ++it;
-        }
-    }
-
     bytes_allocated_ = live_bytes;
-    next_gc_ = std::max(get_initial_gc_threshold(), bytes_allocated_ * GC_GROWTH_FACTOR);
+    next_gc_ = std::max(initial_gc_threshold_, bytes_allocated_ * GC_GROWTH_FACTOR);
 }
 
 void Value::mark() {
@@ -228,7 +240,7 @@ void Value::mark() {
         auto* task = static_cast<ObjTask*>(get_obj());
         if (task->completed) task->result.mark();
     } else if (is_channel()) {
-        // ObjChannel holds thread-safe shared ChannelState containing binary payloads. No GC children.
+        // channel queue has its own mutex and strings, no gc children
     } else {
         get_obj()->mark_children();
     }
@@ -267,7 +279,7 @@ void ObjUpvalue::mark_children() {
 
 void ObjClass::mark_children() {
     for (auto& pair : methods) {
-        if (pair.second) {
+        if (pair.second && !pair.second->marked) {
             pair.second->marked = true;
             pair.second->mark_children();
         }

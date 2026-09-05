@@ -49,7 +49,6 @@ public:
 
     static GCArena& instance();
 
-
     GCArena(const GCArena&) = delete;
     GCArena& operator=(const GCArena&) = delete;
 
@@ -86,6 +85,7 @@ private:
 
     size_t bytes_allocated_;
     size_t next_gc_;
+    size_t initial_gc_threshold_;
     std::recursive_mutex gc_mutex_;
 };
 

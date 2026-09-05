@@ -7,11 +7,13 @@
 
 namespace shell_lite {
 
+// upval slot or outer closure index
 struct Upvalue {
   uint16_t index;
   bool is_local;
 };
 
+// compiler state per function: stack slots, upvalues and scope depth
 struct CompilerState {
   struct CompilerState *enclosing;
   ObjFunction *function;
@@ -42,6 +44,7 @@ struct CompilerState {
 
 class ProperCompiler : public Visitor {
 
+  // compile statement and drop leftover stack val so stack stays balanced
   void compile_statement(Node *s) {
     if (!s)
       return;
@@ -76,6 +79,7 @@ public:
     }
   }
 
+  // compile ast statements and append null return
   ObjFunction *compile(const std::vector<Node *> &nodes) {
     for (auto *node : nodes) {
       update_loc(node);
@@ -105,6 +109,7 @@ public:
     emit_byte(value & 0xff);
   }
 
+  // emit placeholder jump with dummy offset so we can patch it later
   int emit_jump(uint8_t instruction) {
     emit_byte(instruction);
     emit_byte(0xff);
@@ -112,18 +117,21 @@ public:
     return (int)state->function->chunk->code.size() - 2;
   }
 
+  // backpatch jump offset once target address is known
   void patch_jump(int offset) {
     int jump = (int)state->function->chunk->code.size() - offset - 2;
     state->function->chunk->code[offset] = (jump >> 8) & 0xff;
     state->function->chunk->code[offset + 1] = jump & 0xff;
   }
 
+  // loop jump and rewind backwards
   void emit_loop(int loop_start) {
     emit_byte(OP_LOOP);
     int offset = (int)state->function->chunk->code.size() - loop_start + 2;
     emit_short((uint16_t)offset);
   }
 
+  // write value to local slot, upvalue, self prop or global
   void emit_assignment(const std::string &name) {
     int arg = resolve_local(state, name);
     if (arg != -1) {
@@ -146,6 +154,7 @@ public:
     }
   }
 
+  // map operator token to arithmetic or bitwise opcode
   void emit_binary_op(const std::string &op) {
     if (op == "+")
       emit_byte(OP_ADD);
@@ -198,12 +207,18 @@ public:
     return make_constant(Value(vm->arena().intern(str)));
   }
 
+  void emit_string_constant(const std::string &str) {
+    emit_byte(OP_CONSTANT);
+    emit_short(make_string_constant(str));
+  }
+
   void emit_constant(Value value) {
     emit_byte(OP_CONSTANT);
     emit_short(make_constant(value));
   }
 
   void begin_scope() { state->scope_depth++; }
+  // pop dead locals off stack when exiting scope
   void end_scope() {
     state->scope_depth--;
     while (!state->locals.empty() &&
@@ -213,6 +228,7 @@ public:
     }
   }
 
+  // clean up loop locals before breaking out
   void emit_loop_exits(int target_depth) {
     int i = (int)state->locals.size() - 1;
     while (i >= 0 && state->locals[i].depth > target_depth) {
@@ -221,6 +237,7 @@ public:
     }
   }
 
+  // search locals backwards to grab var in active scope
   int resolve_local(CompilerState *c, const std::string &name) {
     for (int i = (int)c->locals.size() - 1; i >= 0; i--) {
       if (c->locals[i].name == name)
@@ -229,6 +246,7 @@ public:
     return -1;
   }
 
+  // add upvalue to closure if we dont already have it
   int add_upvalue(CompilerState *c, uint16_t index, bool is_local) {
     for (int i = 0; i < (int)c->upvalues.size(); i++) {
       if (c->upvalues[i].index == index && c->upvalues[i].is_local == is_local)
@@ -238,6 +256,7 @@ public:
     return (int)c->upvalues.size() - 1;
   }
 
+  // walk enclosing compiler chain to capture outer upval
   int resolve_upvalue(CompilerState *c, const std::string &name) {
     if (c->enclosing == nullptr)
       return -1;
@@ -256,13 +275,14 @@ public:
   }
   void visit(String *node) override {
     update_loc(node);
-    emit_constant(Value(vm->arena().allocate_string(std::string(node->value))));
+    emit_string_constant(std::string(node->value));
   }
   void visit(Boolean *node) override {
     update_loc(node);
     emit_byte(node->value ? OP_TRUE : OP_FALSE);
   }
 
+  // grab var from local slot, upvalue, self prop or globals
   void visit(VarAccess *node) override {
     update_loc(node);
     std::string name(node->name);
@@ -275,13 +295,14 @@ public:
       emit_short((uint16_t)arg);
     } else if (compiling_method && resolve_local(state, "self") != -1) {
       emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     } else {
       emit_byte(OP_GET_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     }
   }
 
+  // evaluate value and assign to target var
   void visit(Assign *node) override {
     update_loc(node);
     if (!node->value) {
@@ -302,6 +323,7 @@ public:
     emit_assignment(std::string(n->name));
   }
 
+  // short-circuit and/or or emit binary opcode
   void visit(BinOp *node) override {
     update_loc(node);
     if (!node->left || !node->right) {
@@ -354,18 +376,15 @@ public:
     }
     node->expression->accept(this);
     if (node->color || node->style) {
-      emit_byte(OP_CONSTANT);
-      emit_short(make_constant(Value(vm->arena().allocate_string(
-          std::string(node->color.value_or("none"))))));
-      emit_byte(OP_CONSTANT);
-      emit_short(make_constant(Value(vm->arena().allocate_string(
-          std::string(node->style.value_or("none"))))));
+      emit_string_constant(std::string(node->color.value_or("none")));
+      emit_string_constant(std::string(node->style.value_or("none")));
       emit_byte(OP_PRINT_COLOR);
     } else {
       emit_byte(OP_PRINT);
     }
   }
 
+  // jump over then-branch if false, jump over else when done
   void visit(If *node) override {
     update_loc(node);
     if (!node->condition) {
@@ -385,6 +404,7 @@ public:
     patch_jump(else_jump);
   }
 
+  // check condition, run body and rewind loop back to start
   void visit(While *node) override {
     update_loc(node);
     if (!node->condition) {
@@ -413,6 +433,7 @@ public:
     current_loop_depths.pop_back();
   }
 
+  // spin up sub-compiler for function body and emit closure
   void visit(FunctionDef *node) override {
     update_loc(node);
     CompilerState *sub =
@@ -428,8 +449,7 @@ public:
           {std::string(std::get<0>(arg)), state->scope_depth});
     for (auto *stmt : node->body)
       compile_statement(stmt);
-    // For init methods, implicitly return self (slot 1, after sentinel) instead
-    // of null so that class constructors return the new instance.
+    // init returns self (slot 0) so constructor returns fresh instance
     if (compiling_method && node->name == "init") {
       emit_byte(OP_GET_LOCAL);
       emit_short(0);
@@ -458,10 +478,11 @@ public:
               ? std::string(node->name)
               : current_namespace + "::" + std::string(node->name);
       emit_byte(OP_DEFINE_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(fn_name))));
+      emit_short(make_string_constant(fn_name));
     }
   }
 
+  // push args, pack kwargs dict if needed and invoke callee
   void visit(Call *node) override {
     update_loc(node);
     std::string name(node->name);
@@ -478,7 +499,7 @@ public:
         emit_short((uint16_t)arg);
       } else {
         emit_byte(OP_GET_GLOBAL);
-        emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+        emit_short(make_string_constant(name));
       }
     }
 
@@ -487,8 +508,7 @@ public:
 
     if (!node->kwargs.empty()) {
       for (const auto &kw : node->kwargs) {
-        emit_constant(
-            Value(vm->arena().allocate_string(std::string(kw.first))));
+        emit_string_constant(std::string(kw.first));
         kw.second->accept(this);
       }
       emit_byte(OP_DICT);
@@ -501,6 +521,7 @@ public:
     }
   }
 
+  // slice array or string with optional bounds and step
   void visit(SliceNode *node) override {
     update_loc(node);
     node->array->accept(this);
@@ -525,8 +546,7 @@ public:
   void visit(DbInsertNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_db_insert"))));
+    emit_short(make_string_constant("std_db_insert"));
     if (node->table)
       node->table->accept(this);
     else
@@ -542,8 +562,7 @@ public:
   void visit(DbQueryNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_db_query_rows"))));
+    emit_short(make_string_constant("std_db_query_rows"));
     if (node->query)
       node->query->accept(this);
     else
@@ -558,8 +577,7 @@ public:
   void visit(DbFindNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_db_find"))));
+    emit_short(make_string_constant("std_db_find"));
     if (node->table)
       node->table->accept(this);
     else
@@ -576,8 +594,7 @@ public:
   void visit(DbDeleteNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_db_delete"))));
+    emit_short(make_string_constant("std_db_delete"));
     if (node->table)
       node->table->accept(this);
     else
@@ -593,8 +610,7 @@ public:
   void visit(WebListenNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("start_server"))));
+    emit_short(make_string_constant("start_server"));
     if (node->port)
       node->port->accept(this);
     else
@@ -606,9 +622,8 @@ public:
   void visit(WebRouteNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string("std_web_on_request"))));
-    emit_constant(Value(vm->arena().allocate_string(node->method)));
+    emit_short(make_string_constant("std_web_on_request"));
+    emit_string_constant(node->method);
     if (node->path)
       node->path->accept(this);
     else
@@ -624,8 +639,7 @@ public:
   void visit(WebServeNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("serve_files_from"))));
+    emit_short(make_string_constant("serve_files_from"));
     if (node->dir)
       node->dir->accept(this);
     else
@@ -641,8 +655,7 @@ public:
   void visit(NlpAddNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_nlp_add"))));
+    emit_short(make_string_constant("std_nlp_add"));
     if (node->container)
       node->container->accept(this);
     else
@@ -658,8 +671,7 @@ public:
   void visit(NlpRemoveNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(
-        make_constant(Value(vm->arena().allocate_string("std_nlp_remove"))));
+    emit_short(make_string_constant("std_nlp_remove"));
     if (node->container)
       node->container->accept(this);
     else
@@ -675,13 +687,13 @@ public:
   void visit(NlpTimerNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(make_constant(Value(vm->arena().allocate_string(
-        node->is_every ? "std_nlp_every" : "std_nlp_after"))));
+    emit_short(make_string_constant(
+        node->is_every ? "std_nlp_every" : "std_nlp_after"));
     if (node->interval)
       node->interval->accept(this);
     else
       emit_constant(Value(1.0));
-    emit_constant(Value(vm->arena().allocate_string(node->unit)));
+    emit_string_constant(node->unit);
     if (node->body)
       node->body->accept(this);
     else
@@ -693,8 +705,7 @@ public:
   void visit(FileWriteNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(make_constant(Value(
-        vm->arena().allocate_string(node->is_append ? "append" : "write"))));
+    emit_short(make_string_constant(node->is_append ? "append" : "write"));
     if (node->path)
       node->path->accept(this);
     else
@@ -710,7 +721,7 @@ public:
   void visit(FileReadNode *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(make_constant(Value(vm->arena().allocate_string("read"))));
+    emit_short(make_string_constant("read"));
     if (node->path)
       node->path->accept(this);
     else
@@ -719,6 +730,7 @@ public:
     emit_byte(1);
   }
 
+  // push return val or null and return
   void visit(Return *node) override {
     update_loc(node);
     if (node->value)
@@ -728,6 +740,7 @@ public:
     emit_byte(OP_RETURN);
   }
 
+  // push catch target and bind error var in catch block
   void visit(Try *node) override {
     update_loc(node);
     int catch_jump = emit_jump(OP_TRY);
@@ -747,7 +760,6 @@ public:
   void visit(ListVal *node) override {
     update_loc(node);
     for (auto *e : node->elements)
-
       e->accept(this);
     emit_byte(OP_LIST);
     emit_byte((uint8_t)node->elements.size());
@@ -789,15 +801,14 @@ public:
       emit_short((uint16_t)arg);
     } else if (compiling_method && resolve_local(state, "self") != -1) {
       emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     } else {
       emit_byte(OP_GET_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     }
 
     emit_byte(OP_GET_PROPERTY);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->property_name)))));
+    emit_short(make_string_constant(std::string(node->property_name)));
   }
 
   void visit(PropertyAssign *node) override {
@@ -812,16 +823,15 @@ public:
       emit_short((uint16_t)arg);
     } else if (compiling_method && resolve_local(state, "self") != -1) {
       emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     } else {
       emit_byte(OP_GET_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     }
 
     node->value->accept(this);
     emit_byte(OP_SET_PROPERTY);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->property_name)))));
+    emit_short(make_string_constant(std::string(node->property_name)));
   }
 
   void visit(MethodCall *node) override {
@@ -836,21 +846,20 @@ public:
       emit_short((uint16_t)arg);
     } else if (compiling_method && resolve_local(state, "self") != -1) {
       emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     } else {
       emit_byte(OP_GET_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+      emit_short(make_string_constant(name));
     }
 
     for (auto *a : node->args)
-
       a->accept(this);
     emit_byte(OP_INVOKE);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->method_name)))));
+    emit_short(make_string_constant(std::string(node->method_name)));
     emit_byte((uint8_t)node->args.size());
   }
 
+  // loop over collection with iterator
   void visit(ForIn *node) override {
     update_loc(node);
     node->iterable->accept(this);
@@ -883,41 +892,38 @@ public:
     current_loop_depths.pop_back();
   }
 
+  // declare class, register properties, attach methods and register into globals
   void visit(ClassDef *node) override {
     update_loc(node);
     emit_byte(OP_CLASS);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->name)))));
+    emit_short(make_string_constant(std::string(node->name)));
     for (auto &prop : node->properties) {
       emit_byte(OP_PROPERTY);
-      emit_short(make_constant(
-          Value(vm->arena().allocate_string(std::string(prop.first)))));
+      emit_short(make_string_constant(std::string(prop.first)));
     }
     for (auto *m : node->methods) {
       compiling_method = true;
       m->accept(this);
       compiling_method = false;
       emit_byte(OP_METHOD);
-      emit_short(make_constant(
-          Value(vm->arena().allocate_string(std::string(m->name)))));
+      emit_short(make_string_constant(std::string(m->name)));
     }
     emit_byte(OP_DEFINE_GLOBAL);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->name)))));
+    emit_short(make_string_constant(std::string(node->name)));
   }
 
+  // new class instance and call constructor
   void visit(Instantiation *node) override {
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
-    emit_short(make_constant(
-        Value(vm->arena().allocate_string(std::string(node->class_name)))));
+    emit_short(make_string_constant(std::string(node->class_name)));
     for (auto *arg : node->args)
-
       arg->accept(this);
     emit_byte(OP_CALL);
     emit_byte((uint8_t)node->args.size());
   }
 
+  // spawn async task on worker thread pool
   void visit(Spawn *node) override {
     update_loc(node);
     if (!node->call) {
@@ -935,7 +941,7 @@ public:
         emit_short((uint16_t)arg);
       } else {
         emit_byte(OP_GET_GLOBAL);
-        emit_short(make_constant(Value(vm->arena().allocate_string(name))));
+        emit_short(make_string_constant(name));
       }
 
       for (auto *a : c->args)
@@ -949,6 +955,7 @@ public:
     }
   }
 
+  // match pattern cases with jump ladder
   void visit(Match *node) override {
     update_loc(node);
     node->match_expr->accept(this);
@@ -961,7 +968,6 @@ public:
       emit_byte(OP_POP);
       emit_byte(OP_POP);
       for (auto *s : c.second)
-
         s->accept(this);
       end_jumps.push_back(emit_jump(OP_JUMP));
       patch_jump(next_jump);
@@ -970,7 +976,6 @@ public:
     if (!node->default_case.empty()) {
       emit_byte(OP_POP);
       for (auto *s : node->default_case)
-
         s->accept(this);
     } else {
       emit_byte(OP_POP);
@@ -979,6 +984,7 @@ public:
       patch_jump(j);
   }
 
+  // list comprehension with iterator and optional filter
   void visit(ListComprehension *node) override {
     update_loc(node);
     emit_byte(OP_LIST);
@@ -1026,6 +1032,7 @@ public:
     current_loop_depths.pop_back();
   }
 
+  // anonymous lambda closure
   void visit(AnonymousFunction *node) override {
     update_loc(node);
     CompilerState *sub = new CompilerState(state, "anonymous", source_file, vm);
@@ -1055,15 +1062,16 @@ public:
     }
   }
 
+  // throw error and unwind stack
   void visit(Throw *n) override {
     update_loc(n);
     n->message->accept(this);
     emit_byte(OP_THROW);
   }
 
-  void visit(Repeat *n) override {
-    update_loc(n);
-    n->count->accept(this);
+  // counted loop helper for repeat and for
+  void compile_counted_loop(Node *count_node, const std::vector<Node *> &body) {
+    count_node->accept(this);
     emit_constant(Value(0.0));
     state->locals.push_back({"", state->scope_depth});
     state->locals.push_back({"", state->scope_depth});
@@ -1084,7 +1092,7 @@ public:
     int exit_jump = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
 
-    for (auto *s : n->body)
+    for (auto *s : body)
       compile_statement(s);
 
     emit_byte(OP_GET_LOCAL);
@@ -1113,6 +1121,14 @@ public:
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
   }
+
+  // repeat body N times
+  void visit(Repeat *n) override {
+    update_loc(n);
+    compile_counted_loop(n->count, n->body);
+  }
+
+  // run body unless condition is true
   void visit(Unless *n) override {
     update_loc(n);
     n->condition->accept(this);
@@ -1125,6 +1141,8 @@ public:
       compile_statement(s);
     patch_jump(end_jump);
   }
+
+  // infinite loop until break
   void visit(Forever *n) override {
     update_loc(n);
     int start = (int)state->function->chunk->code.size();
@@ -1140,6 +1158,8 @@ public:
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
   }
+
+  // loop until condition hits true
   void visit(Until *n) override {
     update_loc(n);
     int loop_start = (int)state->function->chunk->code.size();
@@ -1163,40 +1183,41 @@ public:
     current_loop_depths.pop_back();
   }
 
+  // load module into globals
   void visit(Import *node) override {
     update_loc(node);
-    emit_constant(Value(vm->arena().allocate_string(std::string(node->path))));
+    emit_string_constant(std::string(node->path));
     emit_byte(OP_NULL);
     emit_byte(OP_IMPORT);
     emit_byte(OP_POP);
   }
 
+  // load module under alias
   void visit(ImportAs *node) override {
     update_loc(node);
-    emit_constant(Value(vm->arena().allocate_string(std::string(node->path))));
-    emit_constant(Value(vm->arena().allocate_string(std::string(node->alias))));
+    emit_string_constant(std::string(node->path));
+    emit_string_constant(std::string(node->alias));
     emit_byte(OP_IMPORT);
     emit_byte(OP_POP);
   }
 
+  // grab specific symbols from module
   void visit(FromImport *node) override {
     update_loc(node);
-    emit_constant(
-        Value(vm->arena().allocate_string(std::string(node->module_name))));
+    emit_string_constant(std::string(node->module_name));
     emit_byte(OP_NULL);
     emit_byte(OP_IMPORT);
 
     for (auto &pair : node->names) {
       emit_byte(OP_DUP);
       emit_byte(OP_GET_PROPERTY);
-      emit_short(make_constant(
-          Value(vm->arena().allocate_string(std::string(pair.first)))));
+      emit_short(make_string_constant(std::string(pair.first)));
 
       std::string alias = pair.second.has_value()
                               ? std::string(pair.second.value())
                               : std::string(pair.first);
       emit_byte(OP_DEFINE_GLOBAL);
-      emit_short(make_constant(Value(vm->arena().allocate_string(alias))));
+      emit_short(make_string_constant(alias));
     }
     emit_byte(OP_POP);
   }
@@ -1204,17 +1225,16 @@ public:
   void visit(PythonImport *node) override {
     update_loc(node);
 
-    emit_constant(
-        Value(vm->arena().allocate_string(std::string(node->module_name))));
+    emit_string_constant(std::string(node->module_name));
     if (node->alias)
-      emit_constant(
-          Value(vm->arena().allocate_string(std::string(*node->alias))));
+      emit_string_constant(std::string(*node->alias));
     else
       emit_byte(OP_NULL);
     emit_byte(OP_IMPORT);
     emit_byte(OP_POP);
   }
 
+  // clean up stack locals and jump out of loop
   void visit(Stop *n) override {
     update_loc(n);
     if (!current_loop_exits.empty()) {
@@ -1225,6 +1245,8 @@ public:
                          std::to_string(current_line));
     }
   }
+
+  // clean up stack locals and rewind loop
   void visit(Skip *n) override {
     update_loc(n);
     if (!current_loop_starts.empty()) {
@@ -1236,10 +1258,11 @@ public:
     }
   }
 
+  // spawn body statements in parallel and gather tasks
   void visit(Parallel *n) override {
     update_loc(n);
     emit_byte(OP_LIST);
-    emit_byte(0); // empty list
+    emit_byte(0);
     for (auto *s : n->body) {
       CompilerState *old = state;
       CompilerState *sub =
@@ -1274,6 +1297,7 @@ public:
     emit_byte(OP_POP);
   }
 
+  // try block with guaranteed always cleanup
   void visit(TryAlways *n) override {
     update_loc(n);
     int try_jump = emit_jump(OP_TRY);
@@ -1302,55 +1326,7 @@ public:
 
   void visit(For *n) override {
     update_loc(n);
-    n->count->accept(this);
-    emit_constant(Value(0.0));
-    state->locals.push_back({"", state->scope_depth});
-    state->locals.push_back({"", state->scope_depth});
-    uint16_t count_slot = (uint16_t)(state->locals.size() - 2);
-    uint16_t idx_slot = (uint16_t)(state->locals.size() - 1);
-
-    int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-
-    emit_byte(OP_GET_LOCAL);
-    emit_short(idx_slot);
-    emit_byte(OP_GET_LOCAL);
-    emit_short(count_slot);
-    emit_byte(OP_LESS);
-
-    int exit_jump = emit_jump(OP_JUMP_IF_FALSE);
-    emit_byte(OP_POP);
-
-    for (auto *s : n->body)
-      compile_statement(s);
-
-    emit_byte(OP_GET_LOCAL);
-    emit_short(idx_slot);
-    emit_constant(Value(1.0));
-    emit_byte(OP_ADD);
-    emit_byte(OP_SET_LOCAL);
-    emit_short(idx_slot);
-    emit_byte(OP_POP);
-
-    emit_loop(loop_start);
-
-    patch_jump(exit_jump);
-    emit_byte(OP_POP);
-
-    for (int exit : current_loop_exits.back())
-      patch_jump(exit);
-
-    emit_byte(OP_POP);
-    emit_byte(OP_POP);
-
-    state->locals.pop_back();
-    state->locals.pop_back();
-
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
+    compile_counted_loop(n->count, n->body);
   }
 
   void visit(NamespaceDecl *node) override {
@@ -1377,6 +1353,7 @@ public:
 
 Compiler::Compiler(VM *vm) : vm_(vm) {}
 
+// compile ast into callable function chunk
 ObjFunction *Compiler::compile(const std::string &name,
                                const std::vector<Node *> &nodes) {
   ProperCompiler compiler(name, vm_);

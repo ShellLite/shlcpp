@@ -22,6 +22,7 @@ namespace fs = std::filesystem;
 
 namespace shell_lite {
 
+// bind method to instance so 'self' works
 class BoundMethod : public Callable {
 public:
   ObjInstance *instance;
@@ -59,6 +60,7 @@ static std::string get_executable_directory() {
   return pal::get_executable_path();
 }
 
+// collect module search paths from env, exe dir, and system stdlib
 static void init_default_search_paths(std::vector<std::string> &paths) {
   paths.push_back(".");
 
@@ -102,6 +104,7 @@ static void init_default_search_paths(std::vector<std::string> &paths) {
   }
 }
 
+// boot up vm with fresh globals default stack as well as stdlib builtins
 VM::VM()
     : globals(std::make_shared<GlobalsTable>()), open_upvalues(nullptr),
       has_error(false), arena_(this) {
@@ -128,24 +131,25 @@ VM::VM(std::shared_ptr<GlobalsTable> shared_globals)
 
 VM::~VM() { delete[] stack; }
 
+// pick newer .shl over stale .shbc so we aint runnin outdated bytecode :)
 std::string VM::resolve_path(const std::string &path) {
-  fs::path p(path);
-  fs::path shbc_target = p;
-  fs::path shl_target = p;
+  fs::path target_path(path);
+  fs::path shbc_target = target_path;
+  fs::path shl_target = target_path;
 
-  if (p.extension() == ".shl") {
+  if (target_path.extension() == ".shl") {
     shbc_target.replace_extension(".shbc");
-  } else if (p.extension() == ".shbc") {
+  } else if (target_path.extension() == ".shbc") {
     shl_target.replace_extension(".shl");
   } else {
     shbc_target += ".shbc";
     shl_target += ".shl";
   }
 
-  for (const auto &p : search_paths) {
-    if (fs::exists(p) && fs::is_directory(p)) {
-      fs::path shbc_path = fs::path(p) / shbc_target;
-      fs::path shl_path = fs::path(p) / shl_target;
+  for (const auto &dir_path : search_paths) {
+    if (fs::exists(dir_path) && fs::is_directory(dir_path)) {
+      fs::path shbc_path = fs::path(dir_path) / shbc_target;
+      fs::path shl_path = fs::path(dir_path) / shl_target;
 
       bool shbc_exists = fs::exists(shbc_path);
       bool shl_exists = fs::exists(shl_path);
@@ -168,7 +172,12 @@ std::string VM::resolve_path(const std::string &path) {
   return "";
 }
 
+// load module from cache or compile file into a fresh module object
 ObjModule *VM::load_module(const std::string &path) {
+  if (module_cache.count(path) && module_cache[path] != nullptr) {
+    return module_cache[path];
+  }
+
   auto make_native = [this](int args,
                             std::function<Value(VM *, int)> fn) -> Value {
     return Value(
@@ -214,6 +223,7 @@ ObjModule *VM::load_module(const std::string &path) {
           }
           return Value();
         });
+    module_cache["random"] = mod;
     return mod;
   }
   if (path == "time") {
@@ -258,6 +268,7 @@ ObjModule *VM::load_module(const std::string &path) {
           std::strftime(buf, sizeof(buf), fmt.c_str(), &tm_buf);
           return Value(arena_.allocate_string(std::string(buf)));
         });
+    module_cache["time"] = mod;
     return mod;
   }
   if (path == "subprocess") {
@@ -272,6 +283,7 @@ ObjModule *VM::load_module(const std::string &path) {
       }
       return Value();
     });
+    module_cache["subprocess"] = mod;
     return mod;
   }
 
@@ -381,6 +393,7 @@ void VM::enqueue_task(std::function<void()> task) {
   task_cv_.notify_one();
 }
 
+// drain async tasks and poll event loop until work is cooked
 void VM::run_loop() {
   while (true) {
     std::function<void()> task;
@@ -409,6 +422,7 @@ void VM::run_loop() {
   }
 }
 
+// stack ran outta space, double it and fix up all slot pointers
 void VM::grow_stack() {
   int old_capacity = stack_capacity;
   stack_capacity *= 2;
@@ -429,12 +443,14 @@ void VM::grow_stack() {
   delete[] old_stack;
 }
 
+// push value to stack, grow if full
 void VM::push(Value value) {
   if (stack_top - stack >= stack_capacity)
     grow_stack();
   *stack_top++ = value;
 }
 
+// pop value from stack top
 Value VM::pop() { return *(--stack_top); }
 Value VM::peek(int distance) { return stack_top[-1 - distance]; }
 
@@ -455,6 +471,7 @@ void VM::release_ffi_value(Value *val_ptr) {
 
 void VM::clear_ffi_pool() { ffi_pool.clear(); }
 
+// mark everything alive rn so gc doesn't nuke it -_-
 void VM::mark_roots() {
   for (Value *slot = stack; slot < stack_top; slot++)
     slot->mark();
@@ -483,6 +500,7 @@ void VM::mark_roots() {
       val_ptr->mark();
 }
 
+// fetch next bytecode instruction and bump ip
 uint8_t VM::read_byte() { return *frames.back().ip++; }
 uint16_t VM::read_short() {
   frames.back().ip += 2;
@@ -498,6 +516,7 @@ const std::string& VM::read_string_ref() {
 }
 std::string VM::read_string() { return read_string_ref(); }
 
+// spin up a new callframe check arity first so args dont mismatch
 bool VM::call(ObjClosure *closure, int arg_count) {
   if (closure->function->arity >= 0 && arg_count != closure->function->arity) {
     has_error = true;
@@ -511,6 +530,7 @@ bool VM::call(ObjClosure *closure, int arg_count) {
   return true;
 }
 
+// dynamic dispatch for closures functions classes and native callables
 bool VM::call_value(Value callee, int arg_count) {
   if (callee.is_closure())
     return call(static_cast<ObjClosure *>(callee.get_obj()), arg_count);
@@ -570,6 +590,7 @@ bool VM::call_value(Value callee, int arg_count) {
   return false;
 }
 
+// grab existing open upval or hoist a new one onto the list
 ObjUpvalue *VM::capture_upvalue(Value *local) {
   ObjUpvalue *prev = nullptr;
   ObjUpvalue *curr = open_upvalues;
@@ -588,6 +609,7 @@ ObjUpvalue *VM::capture_upvalue(Value *local) {
   return uv;
 }
 
+// local going out of scope copy to heap so closure keeps it
 void VM::close_upvalues(Value *last) {
   while (open_upvalues != nullptr && open_upvalues->location >= last) {
     ObjUpvalue *uv = open_upvalues;
@@ -597,27 +619,39 @@ void VM::close_upvalues(Value *last) {
   }
 }
 
-void VM::print_stack_trace() {
-  std::cerr << "Stack Trace (most recent call last):" << std::endl;
-  for (int i = 0; i < (int)frames.size(); i++) {
-    CallFrame &frame = frames[i];
+struct StackFrameInfo {
+  std::string source_file;
+  int line = 0;
+  int col = 0;
+  std::string formatted_line;
+};
+
+static std::vector<StackFrameInfo> get_stack_frame_info(const std::vector<CallFrame> &frames) {
+  std::vector<StackFrameInfo> info;
+  info.reserve(frames.size());
+  for (const auto &frame : frames) {
     ObjFunction *function = frame.closure->function;
     int offset = (int)(frame.ip - function->chunk->code.data());
-
     auto loc = function->chunk->get_location(offset > 0 ? offset - 1 : 0);
-    int line = loc.first;
-    int col = loc.second;
+    std::string fn_name = (function->name.empty() || function->name == "script")
+                              ? "<module>"
+                              : function->name + "()";
+    std::string formatted = "File \"" + function->source_file + "\", line " +
+                            std::to_string(loc.first) + ":" + std::to_string(loc.second) +
+                            ", in " + fn_name;
+    info.push_back({function->source_file, loc.first, loc.second, std::move(formatted)});
+  }
+  return info;
+}
 
-    std::cerr << "  File \"" << function->source_file << "\", line " << line
-              << ":" << col << ", in ";
-    if (function->name.empty() || function->name == "script") {
-      std::cerr << "<module>" << std::endl;
-    } else {
-      std::cerr << function->name << "()" << std::endl;
-    }
+void VM::print_stack_trace() {
+  std::cerr << "Stack Trace (most recent call last):" << std::endl;
+  for (const auto &f : get_stack_frame_info(frames)) {
+    std::cerr << "  " << f.formatted_line << std::endl;
   }
 }
 
+// wrap top level script in a closure and fire up the vm :)
 Value VM::interpret(ObjFunction *function) {
   auto *closure = arena_.allocate<ObjClosure>(function);
   push(Value(closure));
@@ -627,34 +661,21 @@ Value VM::interpret(ObjFunction *function) {
   return res;
 }
 
+// main dispatch loop 
 Value VM::run(int target_frame_depth) {
   while (true) {
+    // uhhh hit an error ig we unwind to a catch block or bail with traceback
     if (has_error) {
       if (try_stack.empty()) {
-        std::string src_file;
-        int err_line = 0;
-        int err_col = 0;
+        auto frame_info = get_stack_frame_info(frames);
         std::vector<std::string> btrace;
-        for (int i = 0; i < (int)frames.size(); i++) {
-          CallFrame &frame = frames[i];
-          ObjFunction *function = frame.closure->function;
-          int offset = (int)(frame.ip - function->chunk->code.data());
-          auto loc = function->chunk->get_location(offset > 0 ? offset - 1 : 0);
-          int line = loc.first;
-          int col = loc.second;
-          std::string fn_name = (function->name.empty() || function->name == "script")
-                                    ? "<module>"
-                                    : function->name + "()";
-          std::string frame_str = "File \"" + function->source_file + "\", line " +
-                                  std::to_string(line) + ":" + std::to_string(col) +
-                                  ", in " + fn_name;
-          btrace.push_back(frame_str);
-          if (i == (int)frames.size() - 1) {
-            src_file = function->source_file;
-            err_line = line;
-            err_col = col;
-          }
+        btrace.reserve(frame_info.size());
+        for (const auto &fi : frame_info) {
+          btrace.push_back(fi.formatted_line);
         }
+        std::string src_file = frame_info.empty() ? "" : frame_info.back().source_file;
+        int err_line = frame_info.empty() ? 0 : frame_info.back().line;
+        int err_col = frame_info.empty() ? 0 : frame_info.back().col;
 
         ErrorReporter::report(error_value, SourceLocation(src_file, err_line, err_col), btrace);
         has_error = false;
@@ -698,6 +719,7 @@ Value VM::run(int target_frame_depth) {
     case OP_SET_LOCAL:
       frames.back().slots[read_short()] = peek(0);
       break;
+    // grab global from module first, fallback to root globals
     case OP_GET_GLOBAL: {
       const std::string &name = read_string_ref();
       std::shared_ptr<GlobalsTable> target_globals = globals;
@@ -726,6 +748,7 @@ Value VM::run(int target_frame_depth) {
           Value(arena_.allocate_string("Undefined variable: " + name));
       break;
     }
+    // define global in active module or root scope
     case OP_DEFINE_GLOBAL: {
       const std::string &name = read_string_ref();
       std::shared_ptr<GlobalsTable> target_globals = globals;
@@ -779,6 +802,7 @@ Value VM::run(int target_frame_depth) {
       *frames.back().closure->upvalues[idx]->location = peek(0);
       break;
     }
+    // add numbers or concat strings or merge lists
     case OP_ADD: {
       Value b = pop();
       Value a = pop();
@@ -942,6 +966,7 @@ Value VM::run(int target_frame_depth) {
       push(Value((double)(~(int64_t)pop().as_number())));
       break;
     }
+    // equality check on top two stack vals
     case OP_EQUAL: {
       Value b = pop();
       Value a = pop();
@@ -1040,6 +1065,7 @@ Value VM::run(int target_frame_depth) {
     case OP_PRINT:
       std::cout << pop().to_string() << std::endl;
       break;
+    // construct dynamic list from top stack elements
     case OP_LIST: {
       uint8_t count = read_byte();
       auto *list = arena_.allocate<ObjList>();
@@ -1050,6 +1076,7 @@ Value VM::run(int target_frame_depth) {
       push(Value(list));
       break;
     }
+    // construct dict from key val pairs on stack
     case OP_DICT: {
       uint8_t count = read_byte();
       auto *dict = arena_.allocate<ObjDict>();
@@ -1061,6 +1088,7 @@ Value VM::run(int target_frame_depth) {
       push(Value(dict));
       break;
     }
+    // index into list or dict or string
     case OP_GET_INDEX: {
       Value index = pop();
       Value obj = pop();
@@ -1116,6 +1144,7 @@ Value VM::run(int target_frame_depth) {
       }
       break;
     }
+    // python-style slice on list or string with optional step
     case OP_SLICE: {
       Value step_val = pop();
       Value stop_val = pop();
@@ -1241,12 +1270,6 @@ Value VM::run(int target_frame_depth) {
       Value list_val = peek(distance);
       if (list_val.is_list()) {
         auto *list = static_cast<ObjList *>(list_val.get_obj());
-        if (list->flags.load(std::memory_order_acquire) & GC_FLAG_SHARED) {
-          std::unordered_map<GCObject *, GCObject *> clones;
-          list = static_cast<ObjList *>(list->clone(arena_, clones));
-          list->flags.store(0, std::memory_order_release);
-          *(stack_top - 1 - distance) = Value(list);
-        }
         list->elements.push_back(val);
       }
       break;
@@ -1299,16 +1322,11 @@ Value VM::run(int target_frame_depth) {
       Value self_val = frames.back().slots[0];
       if (self_val.is_instance()) {
         ObjInstance *instance = static_cast<ObjInstance *>(self_val.get_obj());
-        if (instance->flags.load(std::memory_order_acquire) & GC_FLAG_SHARED) {
-          std::unordered_map<GCObject *, GCObject *> clones;
-          instance = static_cast<ObjInstance *>(instance->clone(arena_, clones));
-          instance->flags.store(0, std::memory_order_release);
-          frames.back().slots[0] = Value(instance);
-        }
         instance->fields[name] = val;
       }
       break;
     }
+    // read field from instance or module and bind method if callable
     case OP_GET_PROPERTY: {
       const std::string &name = read_string_ref();
       Value receiver = pop();
@@ -1349,17 +1367,13 @@ Value VM::run(int target_frame_depth) {
       }
       break;
     }
+    // set instance field
     case OP_SET_PROPERTY: {
       const std::string &name = read_string_ref();
       Value val = pop();
       Value receiver = pop();
       if (receiver.is_instance()) {
         ObjInstance *instance = static_cast<ObjInstance *>(receiver.get_obj());
-        if (instance->flags.load(std::memory_order_acquire) & GC_FLAG_SHARED) {
-          std::unordered_map<GCObject *, GCObject *> clones;
-          instance = static_cast<ObjInstance *>(instance->clone(arena_, clones));
-          instance->flags.store(0, std::memory_order_release);
-        }
         instance->fields[name] = val;
         push(val);
       } else {
@@ -1379,14 +1393,14 @@ Value VM::run(int target_frame_depth) {
         auto it = instance->klass->methods.find(method_name);
         if (it != instance->klass->methods.end()) {
           if (!call(it->second, arg_count))
-            return Value();
+            break;
         } else {
           auto field_it = instance->fields.find(method_name);
           if (field_it != instance->fields.end() &&
               field_it->second.is_closure()) {
             stack_top[-arg_count - 1] = field_it->second;
             if (!call_value(field_it->second, arg_count))
-              return Value();
+              break;
           } else {
             has_error = true;
             error_value = Value(arena_.allocate_string("Undefined method '" +
@@ -1400,7 +1414,7 @@ Value VM::run(int target_frame_depth) {
         if (it != module->globals.end()) {
           stack_top[-arg_count - 1] = it->second;
           if (!call_value(it->second, arg_count))
-            return Value();
+            break;
         } else {
           has_error = true;
           error_value = Value(arena_.allocate_string(
@@ -1575,18 +1589,22 @@ Value VM::run(int target_frame_depth) {
       }
       break;
     }
+    // jump forward unconditionally
     case OP_JUMP:
       frames.back().ip += read_short();
       break;
+    // jump ahead ONLY if condition on stack is false
     case OP_JUMP_IF_FALSE: {
       uint16_t offset = read_short();
       if (!peek(0).as_bool())
         frames.back().ip += offset;
       break;
     }
+    // loop jump and rewind ip backwards
     case OP_LOOP:
       frames.back().ip -= read_short();
       break;
+    // call closure or class with arg count
     case OP_CALL: {
       uint8_t arg_count = read_byte();
       call_value(peek(arg_count), arg_count);
@@ -1607,6 +1625,7 @@ Value VM::run(int target_frame_depth) {
       }
       break;
     }
+    // wrap func into closure and pull in its upvalues
     case OP_CLOSURE: {
       ObjFunction *func = static_cast<ObjFunction *>(read_constant().get_obj());
       auto *closure = arena_.allocate<ObjClosure>(func);
@@ -1631,6 +1650,7 @@ Value VM::run(int target_frame_depth) {
       close_upvalues(stack_top - 1);
       pop();
       break;
+    // pop frame, close locals and hand return val back to caller
     case OP_RETURN: {
       Value res = pop();
       Value *slots = frames.back().slots;
@@ -1644,6 +1664,7 @@ Value VM::run(int target_frame_depth) {
       push(res);
       break;
     }
+    // push catch target and stack depth for error recovery
     case OP_TRY: {
       uint16_t offset = read_short();
       try_stack.push_back({frames.back().ip + offset, (int)(stack_top - stack),
@@ -1653,11 +1674,13 @@ Value VM::run(int target_frame_depth) {
     case OP_END_TRY:
       try_stack.pop_back();
       break;
+    // raise error and kick off stack unwind
     case OP_THROW: {
       error_value = pop();
       has_error = true;
       break;
     }
+    // clone isolated vm and YEET task onto global thread pool
     case OP_SPAWN: {
       uint8_t arg_count = read_byte();
       std::vector<Value> args(arg_count);
@@ -1665,51 +1688,70 @@ Value VM::run(int target_frame_depth) {
         args[i] = pop();
       Value callee = pop();
 
-      auto promise = std::make_shared<std::promise<std::string>>();
-      std::shared_future<std::string> future = promise->get_future();
-      auto *task = arena_.allocate<ObjTask>(future);
-      GCRootGuard task_guard(arena_, task);
+      try {
+        auto promise = std::make_shared<std::promise<std::string>>();
+        std::shared_future<std::string> future = promise->get_future();
+        auto *task = arena_.allocate<ObjTask>(future);
+        GCRootGuard task_guard(arena_, task);
 
-      {
-        std::shared_lock<std::shared_mutex> lock(globals->mutex);
-        for (auto &pair : globals->values) {
-          if (pair.second.is_obj() && pair.second.get_obj()) {
-            pair.second.get_obj()->flags.fetch_or(GC_FLAG_SHARED, std::memory_order_release);
+        auto worker_globals = std::make_shared<GlobalsTable>();
+        auto worker = std::make_shared<VM>(worker_globals);
+        worker->search_paths = this->search_paths;
+
+        std::unordered_map<GCObject *, GCObject *> clones;
+        TableCloneScope table_scope(worker->arena(), clones);
+        table_scope.map_table(this->globals.get(), worker_globals);
+
+        {
+          std::shared_lock<std::shared_mutex> lock(this->globals->mutex);
+          for (const auto &pair : this->globals->values) {
+            worker_globals->values[pair.first] =
+                pair.second.clone_val(worker->arena(), clones);
           }
         }
+
+        for (const auto &pair : module_cache) {
+          if (pair.second) {
+            worker->module_cache[pair.first] = static_cast<ObjModule *>(
+                pair.second->clone(worker->arena(), clones));
+          }
+        }
+
+        Value isolated_callee = callee.clone_val(worker->arena(), clones);
+        std::vector<Value> isolated_args;
+        isolated_args.reserve(args.size());
+        for (const auto &arg : args) {
+          isolated_args.push_back(arg.clone_val(worker->arena(), clones));
+        }
+
+        concurrency::get_global_thread_pool().enqueue(
+            [worker, isolated_callee, isolated_args, promise, arg_count]() {
+              worker->push(isolated_callee);
+              for (const auto &arg : isolated_args)
+                worker->push(arg);
+
+              Value res;
+              if (worker->call_value(isolated_callee, arg_count)) {
+                res = worker->run();
+              }
+              std::ostringstream ss(std::ios::binary);
+              serialize_value(ss, res);
+              promise->set_value(ss.str());
+            });
+
+        push(Value(task));
+      } catch (const std::exception &e) {
+        has_error = true;
+        error_value = Value(arena_.allocate_string(e.what()));
       }
-
-      auto worker = std::make_shared<VM>(this->globals);
-      std::unordered_map<GCObject *, GCObject *> clones;
-      Value isolated_callee = callee.clone_val(worker->arena(), clones);
-      std::vector<Value> isolated_args;
-      isolated_args.reserve(args.size());
-      for (const auto &arg : args) {
-        isolated_args.push_back(arg.clone_val(worker->arena(), clones));
-      }
-
-      concurrency::get_global_thread_pool().enqueue(
-          [worker, isolated_callee, isolated_args, promise, arg_count]() {
-            worker->push(isolated_callee);
-            for (const auto &arg : isolated_args)
-              worker->push(arg);
-
-            Value res;
-            if (worker->call_value(isolated_callee, arg_count)) {
-              res = worker->run();
-            }
-            std::ostringstream ss(std::ios::binary);
-            serialize_value(ss, res);
-            promise->set_value(ss.str());
-          });
-
-      push(Value(task));
       break;
     }
+    // create thread safe channel for worker comms
     case OP_CHANNEL: {
       push(Value(arena_.allocate<ObjChannel>()));
       break;
     }
+    // send val through channel
     case OP_SEND: {
       Value v_val = pop();
       Value v_chan = pop();
@@ -1724,6 +1766,7 @@ Value VM::run(int target_frame_depth) {
       push(v_val);
       break;
     }
+    // receive val from channel or block
     case OP_RECEIVE: {
       Value v_chan = pop();
       if (!v_chan.is_channel()) {
@@ -1743,6 +1786,7 @@ Value VM::run(int target_frame_depth) {
     }
     case OP_HALT:
       return (stack_top > stack) ? pop() : Value();
+    // load module and bind to global namespace under name or alias
     case OP_IMPORT: {
       Value alias_val = pop();
       Value path_val = pop();
@@ -1776,11 +1820,13 @@ Value VM::run(int target_frame_depth) {
   }
 }
 
+// wire up core stdlib modules and native functions into globals
 void VM::setup_builtins() {
   globals->values["null"] = Value();
   ObjList *empty_args = arena_.allocate<ObjList>();
+  ObjList *empty_argv = arena_.allocate<ObjList>();
   globals->values["args"] = Value(empty_args);
-  globals->values["argv"] = Value(empty_args);
+  globals->values["argv"] = Value(empty_argv);
 
   register_stdlib_math(this);
   register_stdlib_web(this);
@@ -1796,13 +1842,16 @@ void VM::setup_builtins() {
 }
 
 void VM::set_cli_args(const std::vector<std::string> &args_vec) {
-  ObjList *list = arena_.allocate<ObjList>();
+  ObjList *list_args = arena_.allocate<ObjList>();
+  ObjList *list_argv = arena_.allocate<ObjList>();
   for (const auto &a : args_vec) {
-    list->elements.push_back(Value(arena_.allocate_string(a)));
+    Value str_val(arena_.allocate_string(a));
+    list_args->elements.push_back(str_val);
+    list_argv->elements.push_back(str_val);
   }
   std::unique_lock<std::shared_mutex> lock(globals->mutex);
-  globals->values["args"] = Value(list);
-  globals->values["argv"] = Value(list);
+  globals->values["args"] = Value(list_args);
+  globals->values["argv"] = Value(list_argv);
 }
 
 } // namespace shell_lite

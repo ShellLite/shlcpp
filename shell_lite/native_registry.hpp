@@ -230,6 +230,16 @@ public:
     }
     return func_(vm, arg_count);
   }
+
+  GCObject *clone(GCArena &target,
+                  std::unordered_map<GCObject *, GCObject *> &clones) override {
+    if (clones.count(this))
+      return clones[this];
+    auto *nw = target.allocate<NativeWrapper<Func>>(min_args_, max_args_, name_,
+                                                   func_);
+    clones[this] = nw;
+    return nw;
+  }
 };
 
 class NativeRegistry {

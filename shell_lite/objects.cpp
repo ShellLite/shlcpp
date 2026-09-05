@@ -7,6 +7,46 @@
 
 namespace shell_lite {
 
+// thread local clone scope so worker closures share identical cloned globals
+static thread_local TableCloneScope *g_current_table_scope = nullptr;
+
+TableCloneScope::TableCloneScope(
+    GCArena &target, std::unordered_map<GCObject *, GCObject *> &clones)
+    : target_(target), clones_(clones), prev_(g_current_table_scope) {
+  g_current_table_scope = this;
+}
+
+TableCloneScope::~TableCloneScope() { g_current_table_scope = prev_; }
+
+TableCloneScope *TableCloneScope::current() { return g_current_table_scope; }
+
+void TableCloneScope::map_table(GlobalsTable *source,
+                                std::shared_ptr<GlobalsTable> target) {
+  if (source) {
+    table_map_[source] = std::move(target);
+  }
+}
+
+// deep copy globals or reuse existing clone so worker isolates don't desync
+std::shared_ptr<GlobalsTable>
+TableCloneScope::get_or_clone_table(const std::shared_ptr<GlobalsTable> &source) {
+  if (!source)
+    return nullptr;
+  auto it = table_map_.find(source.get());
+  if (it != table_map_.end()) {
+    return it->second;
+  }
+  auto new_table = std::make_shared<GlobalsTable>();
+  table_map_[source.get()] = new_table;
+  {
+    std::shared_lock<std::shared_mutex> lock(source->mutex);
+    for (const auto &pair : source->values) {
+      new_table->values[pair.first] = pair.second.clone_val(target_, clones_);
+    }
+  }
+  return new_table;
+}
+
 ObjFunction::ObjFunction() : Callable(ObjType::FUNCTION), arity(0), upvalue_count(0), chunk(std::make_unique<Chunk>()) {}
 ObjFunction::~ObjFunction() = default;
 
@@ -14,6 +54,7 @@ Value ObjFunction::call(VM* vm, int arg_count) {
     return Value();
 }
 
+// dump bytecode into .shbc so we dont recompile every time -_-
 void ObjFunction::serialize(std::ostream& out) const {
     static constexpr uint32_t SHBC_FILE_MAGIC = 0x43424853; // "SHBC"
     static constexpr uint16_t SHBC_VERSION_MAJOR = 1;
@@ -44,6 +85,7 @@ void ObjFunction::serialize(std::ostream& out) const {
     }
 }
 
+// read .shbc bytecode and rebuild func in arena
 ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena) {
     uint32_t magic = 0;
     in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
@@ -88,7 +130,7 @@ ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena) {
     return f;
 }
 
-
+// fire up closure on vm
 Value ObjClosure::call(VM* vm, int arg_count) {
     if (vm->call(this, arg_count)) {
         return vm->run();
@@ -97,6 +139,7 @@ Value ObjClosure::call(VM* vm, int arg_count) {
 }
 
 
+// serialize val and toss it onto channel queue
 void ObjChannel::send(const Value &val) {
     std::ostringstream ss(std::ios::binary);
     serialize_value(ss, val);
@@ -124,6 +167,7 @@ void ObjChannel::transfer(Value &val) {
     val = Value();
 }
 
+// grab next val or block until something is cooked
 Value ObjChannel::receive(GCArena &target_arena) {
     std::string payload;
     {
@@ -150,6 +194,7 @@ bool ObjChannel::is_closed() const {
     return state->closed;
 }
 
+// clone channel handle so workers share the same queue
 GCObject *ObjChannel::clone(GCArena &target,
                             std::unordered_map<GCObject *, GCObject *> &clones) {
     if (clones.count(this)) return clones[this];
@@ -195,6 +240,7 @@ GCObject* ObjFunction::clone(GCArena& target, std::unordered_map<GCObject*, GCOb
     return f;
 }
 
+// clone upvalue, hoist to heap if it was living on the stack
 GCObject* ObjUpvalue::clone(GCArena& target, std::unordered_map<GCObject*, GCObject*>& clones) {
     if (clones.count(this)) return clones[this];
     auto* uv = target.allocate<ObjUpvalue>(nullptr);
@@ -205,12 +251,17 @@ GCObject* ObjUpvalue::clone(GCArena& target, std::unordered_map<GCObject*, GCObj
     return uv;
 }
 
+// clone closure and remap module globals for the worker isolate
 GCObject* ObjClosure::clone(GCArena& target, std::unordered_map<GCObject*, GCObject*>& clones) {
     if (clones.count(this)) return clones[this];
     auto* f_clone = static_cast<ObjFunction*>(function->clone(target, clones));
     auto* c = target.allocate<ObjClosure>(f_clone);
     clones[this] = c;
-    c->module_globals = module_globals;
+    if (auto* scope = TableCloneScope::current()) {
+        c->module_globals = scope->get_or_clone_table(module_globals);
+    } else {
+        c->module_globals = module_globals;
+    }
     for (int i = 0; i < (int)upvalues.size(); ++i) {
         if (upvalues[i]) c->upvalues[i] = static_cast<ObjUpvalue*>(upvalues[i]->clone(target, clones));
     }
@@ -274,6 +325,7 @@ ObjDatabase::~ObjDatabase() {
     }
 }
 
+// raw db handles are thread-bound, cant yeet across isolates
 GCObject* ObjDatabase::clone(GCArena& target, std::unordered_map<GCObject*, GCObject*>& clones) {
     throw std::runtime_error("Cannot pass raw database connections across threads");
 }

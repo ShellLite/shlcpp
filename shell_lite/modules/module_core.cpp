@@ -14,6 +14,7 @@
 namespace shell_lite {
 
 void register_stdlib_core(VM *vm) {
+  // load native shared library and wire up plugin c-api
   NativeRegistry::register_builtin(
       vm, "import_plugin", 1, [](VM *vm, int arg_count) -> Value {
         Value path_val = vm->peek(0);
@@ -411,12 +412,14 @@ void register_stdlib_core(VM *vm) {
 
 
 
+  // open thread-safe channel for worker task comms
   auto chan_open_fn = [](VM *vm, int arg_count) -> Value {
     return Value(vm->arena().allocate<ObjChannel>());
   };
   NativeRegistry::register_builtin(vm, "channel", -1, chan_open_fn);
   NativeRegistry::register_builtin(vm, "chan_open", -1, chan_open_fn);
 
+  // send val through channel and mark shared
   auto chan_send_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 2)
       return Value();
@@ -431,6 +434,7 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel_send", -1, chan_send_fn);
   NativeRegistry::register_builtin(vm, "chan_send", -1, chan_send_fn);
 
+  // transfer ownership into channel and null sender
   auto chan_transfer_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 2)
       return Value();
@@ -445,6 +449,7 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel_transfer", -1, chan_transfer_fn);
   NativeRegistry::register_builtin(vm, "chan_transfer", -1, chan_transfer_fn);
 
+  // receive next message or wait until sender cooks one up
   auto chan_recv_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 1)
       return Value();
@@ -457,6 +462,7 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel_receive", -1, chan_recv_fn);
   NativeRegistry::register_builtin(vm, "chan_recv", -1, chan_recv_fn);
 
+  // close channel and wake up any waiting workers
   auto chan_close_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 1)
       return Value();
@@ -482,6 +488,7 @@ void register_stdlib_core(VM *vm) {
         return Value(dict);
       });
 
+  // wait for worker task futures and deserialize results
   NativeRegistry::register_builtin(
       vm, "gather", -1, [](VM *vm, int arg_count) -> Value {
         if (arg_count != 1) {
@@ -642,11 +649,13 @@ void register_stdlib_core(VM *vm) {
         return Value();
       });
 
+  // recursive mutex with shared state so clones share the underlying OS lock
   NativeRegistry::register_builtin(
       vm, "create_lock", 0, [](VM *vm, int arg_count) -> Value {
         return Value(vm->arena().allocate<ObjLock>());
       });
 
+  // acquire lock with scoped block and release when done
   NativeRegistry::register_builtin(
       vm, "lock_block", 2, [](VM *vm, int arg_count) -> Value {
         if (arg_count != 2) return Value();
@@ -654,8 +663,8 @@ void register_stdlib_core(VM *vm) {
         Value block = vm->peek(0);
         if (v_lock.is_lock()) {
           ObjLock *lock_obj = v_lock.as_lock();
-          std::lock_guard<std::recursive_mutex> lock(lock_obj->mutex);
-          lock_obj->owner.store(std::this_thread::get_id(), std::memory_order_release);
+          std::lock_guard<std::recursive_mutex> lock(lock_obj->state->mutex);
+          lock_obj->state->owner.store(std::this_thread::get_id(), std::memory_order_release);
           if (vm->call_value(block, 0)) {
             return vm->run((int)vm->frames.size() - 1);
           }
@@ -664,20 +673,22 @@ void register_stdlib_core(VM *vm) {
         return Value();
       });
 
+  // acquire lock and track owning thread id
   NativeRegistry::register_builtin(
       vm, "lock_acquire", 1, [](VM *vm, int arg_count) -> Value {
         if (arg_count < 1) return Value(false);
         Value v = vm->peek(0);
         if (v.is_lock()) {
           ObjLock *lock_obj = v.as_lock();
-          lock_obj->mutex.lock();
-          lock_obj->owner.store(std::this_thread::get_id(), std::memory_order_release);
-          lock_obj->lock_count.fetch_add(1, std::memory_order_relaxed);
+          lock_obj->state->mutex.lock();
+          lock_obj->state->owner.store(std::this_thread::get_id(), std::memory_order_release);
+          lock_obj->state->lock_count.fetch_add(1, std::memory_order_relaxed);
           return Value(true);
         }
         return Value(false);
       });
 
+  // release lock and verify owner matches current thread
   NativeRegistry::register_builtin(
       vm, "lock_release", 1, [](VM *vm, int arg_count) -> Value {
         if (arg_count < 1) return Value(false);
@@ -685,17 +696,17 @@ void register_stdlib_core(VM *vm) {
         if (v.is_lock()) {
           ObjLock *lock_obj = v.as_lock();
           std::thread::id current_id = std::this_thread::get_id();
-          std::thread::id owner_id = lock_obj->owner.load(std::memory_order_acquire);
+          std::thread::id owner_id = lock_obj->state->owner.load(std::memory_order_acquire);
           if (owner_id != current_id) {
             vm->has_error = true;
             vm->error_value = Value(vm->arena().allocate_string("RuntimeError: Cannot release lock not owned by current thread"));
             return Value(false);
           }
-          int count = lock_obj->lock_count.fetch_sub(1, std::memory_order_relaxed);
+          int count = lock_obj->state->lock_count.fetch_sub(1, std::memory_order_relaxed);
           if (count <= 1) {
-            lock_obj->owner.store(std::thread::id{}, std::memory_order_release);
+            lock_obj->state->owner.store(std::thread::id{}, std::memory_order_release);
           }
-          lock_obj->mutex.unlock();
+          lock_obj->state->mutex.unlock();
           return Value(true);
         }
         return Value(false);
@@ -1066,7 +1077,7 @@ void register_stdlib_core(VM *vm) {
     return Value(!error);
   });
 
-  // String utilities
+  // string builtins
   NativeRegistry::register_builtin(vm, "str_trim", 1, [](VM *vm, int arg_count) -> Value {
     std::string s = vm->peek(0).to_string();
     size_t first = s.find_first_not_of(" \t\n\r");
@@ -1155,7 +1166,7 @@ void register_stdlib_core(VM *vm) {
     return Value(vm->arena().allocate_string(s));
   });
 
-  // Collection utilities
+  // collection builtins
   NativeRegistry::register_builtin(vm, "dict_keys", 1, [](VM *vm, int arg_count) -> Value {
     Value val = vm->peek(0);
     auto *list = vm->arena().allocate<ObjList>();

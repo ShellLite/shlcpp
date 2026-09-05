@@ -16,6 +16,7 @@ Value Value::clone_val(GCArena& target, std::unordered_map<GCObject*, GCObject*>
         return *this;
     }
     GCObject* cloned_obj = obj->clone(target, clones);
+    if (!cloned_obj) return Value();
     return Value(cloned_obj);
 }
 
@@ -149,6 +150,7 @@ bool Value::operator==(const Value& other) const {
     return as == other.as;
 }
 
+// serialize val for channel transfer
 void serialize_value(std::ostream &out, const Value &val) {
     if (val.is_null()) {
         uint8_t tag = 0;
@@ -213,6 +215,7 @@ void serialize_value(std::ostream &out, const Value &val) {
     }
 }
 
+// deserialize val from channel stream
 Value deserialize_value(std::istream &in, GCArena &arena) {
     uint8_t tag = 0;
     if (!in.read(reinterpret_cast<char*>(&tag), 1)) {
