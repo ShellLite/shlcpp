@@ -214,6 +214,9 @@ public:
   get_or_clone_table(const std::shared_ptr<GlobalsTable> &source);
 
   static TableCloneScope *current();
+  TableCloneScope *prev() const { return prev_; }
+  GCArena &target() { return target_; }
+  void mark_roots();
 
 private:
   GCArena &target_;

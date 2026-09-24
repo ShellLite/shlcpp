@@ -20,6 +20,21 @@ TableCloneScope::~TableCloneScope() { g_current_table_scope = prev_; }
 
 TableCloneScope *TableCloneScope::current() { return g_current_table_scope; }
 
+void TableCloneScope::mark_roots() {
+  for (const auto &pair : clones_) {
+    if (pair.second) {
+      Value(pair.second).mark();
+    }
+  }
+  for (const auto &pair : table_map_) {
+    if (pair.second) {
+      for (auto &val_pair : pair.second->values) {
+        val_pair.second.mark();
+      }
+    }
+  }
+}
+
 void TableCloneScope::map_table(GlobalsTable *source,
                                 std::shared_ptr<GlobalsTable> target) {
   if (source) {

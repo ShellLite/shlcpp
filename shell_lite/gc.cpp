@@ -58,6 +58,14 @@ GCArena::~GCArena() {
     }
 }
 
+GCArena* GCArena::current() {
+    return g_current_arena;
+}
+
+void GCArena::set_current(GCArena* arena) {
+    g_current_arena = arena;
+}
+
 // thread-local fallback when running without explicit vm
 GCArena& GCArena::instance() {
     if (!g_current_arena) {
@@ -193,6 +201,12 @@ void GCArena::collect_internal() {
     for (GCObject* root : temp_roots_) {
         if (root) {
             Value(root).mark();
+        }
+    }
+
+    for (TableCloneScope* scope = TableCloneScope::current(); scope != nullptr; scope = scope->prev()) {
+        if (&scope->target() == this) {
+            scope->mark_roots();
         }
     }
 

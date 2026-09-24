@@ -362,6 +362,17 @@ ObjModule *VM::load_module(const std::string &path) {
     GCRootGuard module_guard(arena_, module);
     module->name = fs::path(abs_path).stem().string();
 
+    struct CacheGuard {
+      std::unordered_map<std::string, ObjModule*>& cache;
+      std::string path;
+      bool success = false;
+      ~CacheGuard() {
+        if (!success) {
+          cache.erase(path);
+        }
+      }
+    } cache_guard{module_cache, abs_path, false};
+
     module_cache[abs_path] = module;
 
     struct GlobalsRestorer {
@@ -370,11 +381,21 @@ ObjModule *VM::load_module(const std::string &path) {
       ~GlobalsRestorer() { target = std::move(original); }
     } restorer{globals, old_globals};
 
+    size_t prev_frame_depth = frames.size();
     push(Value(closure));
     if (call(closure, 0)) {
-      run((int)frames.size() - 1);
+      run((int)prev_frame_depth);
     }
 
+    if (has_error || had_unhandled_error) {
+      while (frames.size() > prev_frame_depth) {
+        close_upvalues(frames.back().slots);
+        frames.pop_back();
+      }
+      return nullptr;
+    }
+
+    cache_guard.success = true;
     module->globals = globals->values;
     return module;
   } catch (const std::exception &e) {
@@ -666,7 +687,26 @@ Value VM::run(int target_frame_depth) {
   while (true) {
     // uhhh hit an error ig we unwind to a catch block or bail with traceback
     if (has_error) {
-      if (try_stack.empty()) {
+      if (!try_stack.empty() && try_stack.back().frame_count > target_frame_depth) {
+        auto tf = try_stack.back();
+        try_stack.pop_back();
+        while (frames.size() > (size_t)tf.frame_count) {
+          close_upvalues(frames.back().slots);
+          frames.pop_back();
+        }
+        close_upvalues(stack + tf.stack_count);
+        stack_top = stack + tf.stack_count;
+        push(error_value);
+        frames.back().ip = tf.catch_ip;
+        has_error = false;
+        error_value = Value();
+      } else if (target_frame_depth > 0) {
+        while ((int)frames.size() > target_frame_depth) {
+          close_upvalues(frames.back().slots);
+          frames.pop_back();
+        }
+        return Value();
+      } else {
         auto frame_info = get_stack_frame_info(frames);
         std::vector<std::string> btrace;
         btrace.reserve(frame_info.size());
@@ -680,20 +720,12 @@ Value VM::run(int target_frame_depth) {
         ErrorReporter::report(error_value, SourceLocation(src_file, err_line, err_col), btrace);
         has_error = false;
         had_unhandled_error = true;
+        while (!frames.empty()) {
+          close_upvalues(frames.back().slots);
+          frames.pop_back();
+        }
         return Value();
       }
-      auto tf = try_stack.back();
-      try_stack.pop_back();
-      while (frames.size() > (size_t)tf.frame_count) {
-        close_upvalues(frames.back().slots);
-        frames.pop_back();
-      }
-      close_upvalues(stack + tf.stack_count);
-      stack_top = stack + tf.stack_count;
-      push(error_value);
-      frames.back().ip = tf.catch_ip;
-      has_error = false;
-      error_value = Value();
     }
 
     uint8_t instruction;
@@ -1065,6 +1097,33 @@ Value VM::run(int target_frame_depth) {
     case OP_PRINT:
       std::cout << pop().to_string() << std::endl;
       break;
+    case OP_PRINT_COLOR: {
+      std::string style = pop().as_string();
+      std::string color = pop().as_string();
+      std::string text = pop().to_string();
+
+      std::string ansi = "";
+      if (color == "red") ansi += "\033[31m";
+      else if (color == "green") ansi += "\033[32m";
+      else if (color == "yellow") ansi += "\033[33m";
+      else if (color == "blue") ansi += "\033[34m";
+      else if (color == "magenta" || color == "purple") ansi += "\033[35m";
+      else if (color == "cyan") ansi += "\033[36m";
+      else if (color == "white") ansi += "\033[37m";
+      else if (color == "gray" || color == "grey") ansi += "\033[90m";
+
+      if (style == "bold") ansi += "\033[1m";
+      else if (style == "dim") ansi += "\033[2m";
+      else if (style == "italic") ansi += "\033[3m";
+      else if (style == "underline") ansi += "\033[4m";
+
+      if (!ansi.empty()) {
+        std::cout << ansi << text << "\033[0m" << std::endl;
+      } else {
+        std::cout << text << std::endl;
+      }
+      break;
+    }
     // construct dynamic list from top stack elements
     case OP_LIST: {
       uint8_t count = read_byte();
@@ -1656,6 +1715,9 @@ Value VM::run(int target_frame_depth) {
       Value *slots = frames.back().slots;
       close_upvalues(slots);
       frames.pop_back();
+      while (!try_stack.empty() && try_stack.back().frame_count > (int)frames.size()) {
+        try_stack.pop_back();
+      }
       if ((int)frames.size() == target_frame_depth)
         return res;
       if (frames.empty())
@@ -1689,6 +1751,8 @@ Value VM::run(int target_frame_depth) {
       Value callee = pop();
 
       try {
+        GCArenaScope spawner_arena_scope(&this->arena_);
+
         auto promise = std::make_shared<std::promise<std::string>>();
         std::shared_future<std::string> future = promise->get_future();
         auto *task = arena_.allocate<ObjTask>(future);
@@ -1696,6 +1760,7 @@ Value VM::run(int target_frame_depth) {
 
         auto worker_globals = std::make_shared<GlobalsTable>();
         auto worker = std::make_shared<VM>(worker_globals);
+        GCArena::set_current(&this->arena_);
         worker->search_paths = this->search_paths;
 
         std::unordered_map<GCObject *, GCObject *> clones;
@@ -1726,6 +1791,7 @@ Value VM::run(int target_frame_depth) {
 
         concurrency::get_global_thread_pool().enqueue(
             [worker, isolated_callee, isolated_args, promise, arg_count]() {
+              GCArenaScope worker_arena_scope(&worker->arena());
               worker->push(isolated_callee);
               for (const auto &arg : isolated_args)
                 worker->push(arg);
@@ -1793,7 +1859,7 @@ Value VM::run(int target_frame_depth) {
       std::string path = path_val.as_string();
 
       ObjModule *module = load_module(path);
-      if (has_error)
+      if (!module || has_error || had_unhandled_error)
         break;
 
       std::string name;
@@ -1807,6 +1873,37 @@ Value VM::run(int target_frame_depth) {
         globals->values[name] = Value(module);
       }
       push(Value(module));
+      break;
+    }
+
+    case OP_IN:
+    case OP_NOT_IN: {
+      Value container = pop();
+      Value item = pop();
+      bool found = false;
+      if (container.is_list()) {
+        auto *list = static_cast<ObjList *>(container.get_obj());
+        for (const auto &elem : list->elements) {
+          if (elem == item) {
+            found = true;
+            break;
+          }
+        }
+      } else if (container.is_dict()) {
+        auto *dict = static_cast<ObjDict *>(container.get_obj());
+        std::string key = item.to_string();
+        found = (dict->elements.find(key) != dict->elements.end());
+      } else if (container.is_string()) {
+        std::string str = container.as_string();
+        std::string sub = item.to_string();
+        found = (str.find(sub) != std::string::npos);
+      } else {
+        has_error = true;
+        error_value = Value(arena_.allocate_string(
+            "Type error: 'in' operator requires a list, dict, or string container."));
+        break;
+      }
+      push(Value(instruction == OP_IN ? found : !found));
       break;
     }
 

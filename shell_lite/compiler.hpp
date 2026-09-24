@@ -9,6 +9,7 @@ namespace shell_lite {
 struct Local {
     std::string name;
     int depth;
+    bool is_captured = false;
 };
 
 struct ObjFunction;

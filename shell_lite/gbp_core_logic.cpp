@@ -137,10 +137,16 @@ TopographyResult phase1_topography_scan(std::string_view source) {
                 size_t first_non_space = raw_block.find_first_not_of(" \t\r\n");
                 if (first_non_space != std::string_view::npos && raw_block[first_non_space] != '#') {
                     int indent = 0;
+                    bool has_tab = false, has_space = false;
                     for (size_t i = 0; i < first_non_space; ++i) {
-                        if (raw_block[i] == '\t') indent += 4;
-                        else if (raw_block[i] == ' ') indent += 1;
+                        if (raw_block[i] == '\t') { indent += 4; has_tab = true; }
+                        else if (raw_block[i] == ' ') { indent += 1; has_space = true; }
                         else if (raw_block[i] == '\n' || raw_block[i] == '\r') break;
+                    }
+                    if (has_tab && has_space) {
+                        std::string sl = extract_source_line(source, start_line);
+                        result.diagnostics.push_back(SyntaxError("IndentationError: mixed tabs and spaces in indentation",
+                                                                 SourceLocation{"", start_line, 1, sl, "use either tabs or spaces consistently"}));
                     }
                     result.nodes.push_back({start_line, indent, -1, raw_block, {}, {}, false});
                 }
@@ -308,10 +314,16 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                 size_t first_non_space = raw_block.find_first_not_of(" \t\r\n");
                 if (first_non_space != std::string_view::npos && raw_block[first_non_space] != '#') {
                     int indent = 0;
+                    bool has_tab = false, has_space = false;
                     for (size_t i = 0; i < first_non_space; ++i) {
-                        if (raw_block[i] == '\t') indent += 4;
-                        else if (raw_block[i] == ' ') indent += 1;
+                        if (raw_block[i] == '\t') { indent += 4; has_tab = true; }
+                        else if (raw_block[i] == ' ') { indent += 1; has_space = true; }
                         else if (raw_block[i] == '\n' || raw_block[i] == '\r') break;
+                    }
+                    if (has_tab && has_space) {
+                        std::string sl = extract_source_line(source, current_start_line);
+                        result.diagnostics.push_back(SyntaxError("IndentationError: mixed tabs and spaces in indentation",
+                                                                 SourceLocation{"", current_start_line, 1, sl, "use either tabs or spaces consistently"}));
                     }
                     if (!result.has_anchor && indent == 0 && is_anchor_line(source, node_start)) {
                         result.has_anchor = true;

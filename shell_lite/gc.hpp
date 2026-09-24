@@ -48,6 +48,8 @@ public:
     ~GCArena();
 
     static GCArena& instance();
+    static GCArena* current();
+    static void set_current(GCArena* arena);
 
     GCArena(const GCArena&) = delete;
     GCArena& operator=(const GCArena&) = delete;
@@ -84,8 +86,8 @@ private:
     VM* vm_;
 
     size_t bytes_allocated_;
-    size_t next_gc_;
     size_t initial_gc_threshold_;
+    size_t next_gc_;
     std::recursive_mutex gc_mutex_;
 };
 
@@ -124,6 +126,22 @@ public:
 private:
     GCArena* arena_;
     GCObject* obj_;
+};
+
+class GCArenaScope {
+public:
+    GCArenaScope() : prev_(GCArena::current()) {}
+    explicit GCArenaScope(GCArena* arena) : prev_(GCArena::current()) {
+        GCArena::set_current(arena);
+    }
+    ~GCArenaScope() {
+        GCArena::set_current(prev_);
+    }
+
+    GCArenaScope(const GCArenaScope&) = delete;
+    GCArenaScope& operator=(const GCArenaScope&) = delete;
+private:
+    GCArena* prev_;
 };
 
 }

@@ -293,7 +293,9 @@ struct MethodCall : Node {
 struct PropertyAccess : Node {
     std::string_view instance_name;
     std::string_view property_name;
-    PropertyAccess(std::string_view i = "", std::string_view p = "") : instance_name(i), property_name(p) {}
+    Node* base = nullptr;
+    PropertyAccess(std::string_view i = "", std::string_view p = "", Node* b = nullptr)
+        : instance_name(i), property_name(p), base(b) {}
     std::string node_type() const override { return "PropertyAccess"; }
     bool pushes_value_as_statement() const override { return true; }
     void accept(Visitor* v) override { v->visit(this); }

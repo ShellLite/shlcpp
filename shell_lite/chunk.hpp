@@ -80,6 +80,8 @@ enum OpCode : uint8_t {
   OP_RSHIFT,
 
   OP_IMPORT,
+  OP_IN,
+  OP_NOT_IN,
   OP_HALT
 };
 

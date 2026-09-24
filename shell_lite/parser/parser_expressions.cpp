@@ -499,9 +499,9 @@ Node *Parser::SubParser::parse_call_and_access() {
         throw SyntaxError("Expected property name", {"", 0, 0});
       Token name = tokens_[pos_++];
       if (VarAccess *v = dynamic_cast<VarAccess *>(node))
-        node = arena_.emplace<PropertyAccess>(v->name, name.value);
+        node = arena_.emplace<PropertyAccess>(v->name, name.value, node);
       else
-        node = arena_.emplace<PropertyAccess>("", name.value);
+        node = arena_.emplace<PropertyAccess>("", name.value, node);
     } else if (match(TokenType::TOK_COLON_COLON)) {
       if (is_at_end())
         throw SyntaxError("Expected identifier after '::'", {"", 0, 0});
@@ -825,8 +825,34 @@ Node *Parser::SubParser::parse_primary() {
       call->args = {list};
       return call;
     }
-    if (match({TokenType::TOK_FROM, TokenType::TOK_IN}))
-      return parse_comprehension(name);
+    if (name == "receive" && match(TokenType::TOK_FROM)) {
+      Call *call = arena_.emplace<Call>("channel_receive");
+      call->args.push_back(parse_call_and_access());
+      return call;
+    }
+
+    if (check(TokenType::TOK_FROM) || check(TokenType::TOK_IN)) {
+      bool has_to_ahead = false;
+      for (size_t i = pos_ + 1; i < tokens_.size(); ++i) {
+        if (tokens_[i].type == TokenType::TOK_TO) {
+          has_to_ahead = true;
+          break;
+        }
+        if (tokens_[i].type == TokenType::TOK_NEWLINE ||
+            tokens_[i].type == TokenType::TOK_DEDENT ||
+            tokens_[i].type == TokenType::TOK_EOF_TOK ||
+            tokens_[i].type == TokenType::TOK_COMMA ||
+            tokens_[i].type == TokenType::TOK_RBRACKET ||
+            tokens_[i].type == TokenType::TOK_RPAREN ||
+            tokens_[i].type == TokenType::TOK_RBRACE) {
+          break;
+        }
+      }
+      if (has_to_ahead) {
+        advance();
+        return parse_comprehension(name);
+      }
+    }
 
     bool is_builtin =
         (name == "str" || name == "int" || name == "float" || name == "bool" ||
@@ -996,9 +1022,16 @@ Node *Parser::SubParser::parse_natural_list_dict() {
     if (match(TokenType::TOK_SET)) {
       ListVal *list = arena_.emplace<ListVal>();
       if (match(TokenType::TOK_OF)) {
-        do {
-          list->elements.push_back(parse_expression());
-        } while (match(TokenType::TOK_COMMA));
+        while (!is_at_end() && !check(TokenType::TOK_NEWLINE) &&
+               !check(TokenType::TOK_DEDENT) && !check(TokenType::TOK_EOF_TOK)) {
+          Node *elem = parse_expression();
+          if (elem) {
+            list->elements.push_back(elem);
+          } else {
+            break;
+          }
+          if (!match(TokenType::TOK_COMMA)) break;
+        }
       }
       Call *call = arena_.emplace<Call>("set");
       call->args = {list};
@@ -1008,18 +1041,32 @@ Node *Parser::SubParser::parse_natural_list_dict() {
   if (match(TokenType::TOK_LIST)) {
     ListVal *list = arena_.emplace<ListVal>();
     if (match(TokenType::TOK_OF)) {
-      do {
-        list->elements.push_back(parse_expression());
-      } while (match(TokenType::TOK_COMMA));
+      while (!is_at_end() && !check(TokenType::TOK_NEWLINE) &&
+             !check(TokenType::TOK_DEDENT) && !check(TokenType::TOK_EOF_TOK)) {
+        Node *elem = parse_expression();
+        if (elem) {
+          list->elements.push_back(elem);
+        } else {
+          break;
+        }
+        if (!match(TokenType::TOK_COMMA)) break;
+      }
     }
     return list;
   }
   if (match(TokenType::TOK_SET)) {
     ListVal *list = arena_.emplace<ListVal>();
     if (match(TokenType::TOK_OF)) {
-      do {
-        list->elements.push_back(parse_expression());
-      } while (match(TokenType::TOK_COMMA));
+      while (!is_at_end() && !check(TokenType::TOK_NEWLINE) &&
+             !check(TokenType::TOK_DEDENT) && !check(TokenType::TOK_EOF_TOK)) {
+        Node *elem = parse_expression();
+        if (elem) {
+          list->elements.push_back(elem);
+        } else {
+          break;
+        }
+        if (!match(TokenType::TOK_COMMA)) break;
+      }
     }
     Call *call = arena_.emplace<Call>("set");
     call->args = {list};
@@ -1069,13 +1116,26 @@ Node *Parser::SubParser::parse_unparenthesized_call(std::string_view name) {
         check(TokenType::TOK_DO) || check(TokenType::TOK_AT) ||
         check(TokenType::TOK_PORT);
 
+    size_t prev_pos = pos_;
     if (is_kwarg_candidate && pos_ + 1 < tokens_.size() &&
         tokens_[pos_ + 1].type == TokenType::TOK_ASSIGN) {
       std::string kw = std::string(advance().value);
       advance(); // skip '='
-      call->kwargs.push_back({kw, parse_call_and_access()});
+      Node *val = parse_call_and_access();
+      if (!val || pos_ == prev_pos) {
+        break;
+      }
+      call->kwargs.push_back({kw, val});
     } else {
-      call->args.push_back(parse_call_and_access());
+      Node *arg = parse_call_and_access();
+      if (!arg || pos_ == prev_pos) {
+        break;
+      }
+      call->args.push_back(arg);
+    }
+
+    if (pos_ == prev_pos) {
+      break;
     }
 
     // legacy NLP check for `only letters`

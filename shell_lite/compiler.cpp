@@ -19,12 +19,14 @@ struct CompilerState {
   ObjFunction *function;
   std::vector<Local> locals;
   std::vector<Upvalue> upvalues;
+  std::vector<std::vector<Node *>> always_blocks;
   int scope_depth;
+  int current_try_depth;
   VM *vm;
 
   CompilerState(CompilerState *enc, const std::string &name,
                 const std::string &source_file, VM *vm_ptr)
-      : enclosing(enc), scope_depth(0), vm(vm_ptr) {
+      : enclosing(enc), scope_depth(0), current_try_depth(0), vm(vm_ptr) {
     function = vm->arena().allocate<ObjFunction>();
     function->flags.fetch_or(GC_FLAG_FROZEN, std::memory_order_relaxed);
     function->name = name;
@@ -65,6 +67,15 @@ public:
   std::vector<int> current_loop_starts;
   std::vector<std::vector<int>> current_loop_exits;
   std::vector<int> current_loop_depths;
+  std::vector<int> current_loop_try_depths;
+  std::vector<int> current_loop_always_depths;
+  bool inlining_always = false;
+
+  struct InliningGuard {
+    bool &flag;
+    explicit InliningGuard(bool &f) : flag(f) { flag = true; }
+    ~InliningGuard() { flag = false; }
+  };
   VM *vm;
 
   ProperCompiler(const std::string &source, VM *vm_ptr)
@@ -120,6 +131,10 @@ public:
   // backpatch jump offset once target address is known
   void patch_jump(int offset) {
     int jump = (int)state->function->chunk->code.size() - offset - 2;
+    if (jump > UINT16_MAX) {
+      throw CompileError("Too much code to jump over (jump offset exceeds 65535 bytes)",
+                         {source_file, current_line, current_col});
+    }
     state->function->chunk->code[offset] = (jump >> 8) & 0xff;
     state->function->chunk->code[offset + 1] = jump & 0xff;
   }
@@ -128,6 +143,10 @@ public:
   void emit_loop(int loop_start) {
     emit_byte(OP_LOOP);
     int offset = (int)state->function->chunk->code.size() - loop_start + 2;
+    if (offset > UINT16_MAX) {
+      throw CompileError("Loop body too large (jump offset exceeds 65535 bytes)",
+                         {source_file, current_line, current_col});
+    }
     emit_short((uint16_t)offset);
   }
 
@@ -190,6 +209,10 @@ public:
       emit_byte(OP_LSHIFT);
     else if (op == ">>")
       emit_byte(OP_RSHIFT);
+    else if (op == "in")
+      emit_byte(OP_IN);
+    else if (op == "not in")
+      emit_byte(OP_NOT_IN);
   }
 
   uint16_t make_constant(Value value) {
@@ -223,7 +246,11 @@ public:
     state->scope_depth--;
     while (!state->locals.empty() &&
            state->locals.back().depth > state->scope_depth) {
-      emit_byte(OP_POP);
+      if (state->locals.back().is_captured) {
+        emit_byte(OP_CLOSE_UPVALUE);
+      } else {
+        emit_byte(OP_POP);
+      }
       state->locals.pop_back();
     }
   }
@@ -232,9 +259,30 @@ public:
   void emit_loop_exits(int target_depth) {
     int i = (int)state->locals.size() - 1;
     while (i >= 0 && state->locals[i].depth > target_depth) {
-      emit_byte(OP_POP);
+      if (state->locals[i].is_captured) {
+        emit_byte(OP_CLOSE_UPVALUE);
+      } else {
+        emit_byte(OP_POP);
+      }
       i--;
     }
+  }
+
+  void emit_loop_break_continue_cleanup() {
+    int tries_to_pop = state->current_try_depth - current_loop_try_depths.back();
+    for (int i = 0; i < tries_to_pop; ++i) {
+      emit_byte(OP_END_TRY);
+    }
+    int always_target = current_loop_always_depths.back();
+    if ((int)state->always_blocks.size() > always_target && !inlining_always) {
+      InliningGuard guard(inlining_always);
+      for (int i = (int)state->always_blocks.size() - 1; i >= always_target; --i) {
+        for (auto *s : state->always_blocks[i]) {
+          compile_statement(s);
+        }
+      }
+    }
+    emit_loop_exits(current_loop_depths.back());
   }
 
   // search locals backwards to grab var in active scope
@@ -261,8 +309,10 @@ public:
     if (c->enclosing == nullptr)
       return -1;
     int local = resolve_local(c->enclosing, name);
-    if (local != -1)
+    if (local != -1) {
+      c->enclosing->locals[local].is_captured = true;
       return add_upvalue(c, (uint16_t)local, true);
+    }
     int upvalue = resolve_upvalue(c->enclosing, name);
     if (upvalue != -1)
       return add_upvalue(c, (uint16_t)upvalue, false);
@@ -415,6 +465,8 @@ public:
     current_loop_starts.push_back(loop_start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     node->condition->accept(this);
     int exit_jump = emit_jump(OP_JUMP_IF_FALSE);
@@ -431,6 +483,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // spin up sub-compiler for function body and emit closure
@@ -503,6 +557,15 @@ public:
       }
     }
 
+    if (node->args.size() > 254) {
+      throw CompileError("Too many arguments for function call (max 254)",
+                         {source_file, current_line, current_col});
+    }
+    if (node->kwargs.size() > 255) {
+      throw CompileError("Too many keyword arguments (max 255)",
+                         {source_file, current_line, current_col});
+    }
+
     for (auto *arg_node : node->args)
       arg_node->accept(this);
 
@@ -567,6 +630,10 @@ public:
       node->query->accept(this);
     else
       emit_byte(OP_NULL);
+    if (node->params.size() > 254) {
+      throw CompileError("Too many query parameters (max 254)",
+                         {source_file, current_line, current_col});
+    }
     for (auto *param : node->params) {
       param->accept(this);
     }
@@ -737,20 +804,40 @@ public:
       node->value->accept(this);
     else
       emit_byte(OP_NULL);
+
+    if (!state->always_blocks.empty() && !inlining_always) {
+      InliningGuard guard(inlining_always);
+      state->locals.push_back({"", state->scope_depth, false});
+      int temp_slot = (int)state->locals.size() - 1;
+      emit_byte(OP_SET_LOCAL);
+      emit_short((uint16_t)temp_slot);
+
+      for (auto it = state->always_blocks.rbegin(); it != state->always_blocks.rend(); ++it) {
+        for (auto *s : *it) {
+          compile_statement(s);
+        }
+      }
+
+      emit_byte(OP_GET_LOCAL);
+      emit_short((uint16_t)temp_slot);
+      state->locals.pop_back();
+    }
     emit_byte(OP_RETURN);
   }
 
   // push catch target and bind error var in catch block
   void visit(Try *node) override {
     update_loc(node);
+    state->current_try_depth++;
     int catch_jump = emit_jump(OP_TRY);
     for (auto *s : node->try_body)
       compile_statement(s);
     emit_byte(OP_END_TRY);
+    state->current_try_depth--;
     int end_jump = emit_jump(OP_JUMP);
     patch_jump(catch_jump);
     begin_scope();
-    state->locals.push_back({std::string(node->catch_var), state->scope_depth});
+    state->locals.push_back({std::string(node->catch_var), state->scope_depth, false});
     for (auto *s : node->catch_body)
       compile_statement(s);
     end_scope();
@@ -759,6 +846,10 @@ public:
 
   void visit(ListVal *node) override {
     update_loc(node);
+    if (node->elements.size() > 255) {
+      throw CompileError("List literal exceeds maximum supported size (255 elements)",
+                         {source_file, current_line, current_col});
+    }
     for (auto *e : node->elements)
       e->accept(this);
     emit_byte(OP_LIST);
@@ -767,6 +858,10 @@ public:
 
   void visit(Dictionary *node) override {
     update_loc(node);
+    if (node->pairs.size() > 255) {
+      throw CompileError("Dictionary literal exceeds maximum supported size (255 pairs)",
+                         {source_file, current_line, current_col});
+    }
     for (auto &p : node->pairs) {
       p.first->accept(this);
       p.second->accept(this);
@@ -791,20 +886,24 @@ public:
 
   void visit(PropertyAccess *node) override {
     update_loc(node);
-    std::string name(node->instance_name);
-    int arg = resolve_local(state, name);
-    if (arg != -1) {
-      emit_byte(OP_GET_LOCAL);
-      emit_short((uint16_t)arg);
-    } else if ((arg = resolve_upvalue(state, name)) != -1) {
-      emit_byte(OP_GET_UPVALUE);
-      emit_short((uint16_t)arg);
-    } else if (compiling_method && resolve_local(state, "self") != -1) {
-      emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_string_constant(name));
+    if (node->base) {
+      node->base->accept(this);
     } else {
-      emit_byte(OP_GET_GLOBAL);
-      emit_short(make_string_constant(name));
+      std::string name(node->instance_name);
+      int arg = resolve_local(state, name);
+      if (arg != -1) {
+        emit_byte(OP_GET_LOCAL);
+        emit_short((uint16_t)arg);
+      } else if ((arg = resolve_upvalue(state, name)) != -1) {
+        emit_byte(OP_GET_UPVALUE);
+        emit_short((uint16_t)arg);
+      } else if (compiling_method && resolve_local(state, "self") != -1) {
+        emit_byte(OP_GET_SELF_PROPERTY);
+        emit_short(make_string_constant(name));
+      } else {
+        emit_byte(OP_GET_GLOBAL);
+        emit_short(make_string_constant(name));
+      }
     }
 
     emit_byte(OP_GET_PROPERTY);
@@ -852,6 +951,10 @@ public:
       emit_short(make_string_constant(name));
     }
 
+    if (node->args.size() > 255) {
+      throw CompileError("Too many method arguments (max 255)",
+                         {source_file, current_line, current_col});
+    }
     for (auto *a : node->args)
       a->accept(this);
     emit_byte(OP_INVOKE);
@@ -870,6 +973,8 @@ public:
     current_loop_starts.push_back(loop_start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     int exit_jump = emit_jump(OP_FOR_ITER);
     begin_scope();
@@ -890,6 +995,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // declare class, register properties, attach methods and register into globals
@@ -917,6 +1024,10 @@ public:
     update_loc(node);
     emit_byte(OP_GET_GLOBAL);
     emit_short(make_string_constant(std::string(node->class_name)));
+    if (node->args.size() > 255) {
+      throw CompileError("Too many constructor arguments (max 255)",
+                         {source_file, current_line, current_col});
+    }
     for (auto *arg : node->args)
       arg->accept(this);
     emit_byte(OP_CALL);
@@ -944,6 +1055,10 @@ public:
         emit_short(make_string_constant(name));
       }
 
+      if (c->args.size() > 255) {
+        throw CompileError("Too many spawn arguments (max 255)",
+                           {source_file, current_line, current_col});
+      }
       for (auto *a : c->args)
         a->accept(this);
       emit_byte(OP_SPAWN);
@@ -999,6 +1114,8 @@ public:
     current_loop_starts.push_back(loop_start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     int exit_jump = emit_jump(OP_FOR_ITER);
     begin_scope();
@@ -1030,6 +1147,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // anonymous lambda closure
@@ -1082,6 +1201,8 @@ public:
     current_loop_starts.push_back(loop_start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     emit_byte(OP_GET_LOCAL);
     emit_short(idx_slot);
@@ -1120,6 +1241,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // repeat body N times
@@ -1149,6 +1272,8 @@ public:
     current_loop_starts.push_back(start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
     for (auto *s : n->body)
       compile_statement(s);
     emit_loop(start);
@@ -1157,6 +1282,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // loop until condition hits true
@@ -1166,6 +1293,8 @@ public:
     current_loop_starts.push_back(loop_start);
     current_loop_exits.push_back(std::vector<int>());
     current_loop_depths.push_back(state->scope_depth);
+    current_loop_try_depths.push_back(state->current_try_depth);
+    current_loop_always_depths.push_back((int)state->always_blocks.size());
     n->condition->accept(this);
     int run_body = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
@@ -1181,6 +1310,8 @@ public:
     current_loop_starts.pop_back();
     current_loop_exits.pop_back();
     current_loop_depths.pop_back();
+    current_loop_try_depths.pop_back();
+    current_loop_always_depths.pop_back();
   }
 
   // load module into globals
@@ -1238,7 +1369,7 @@ public:
   void visit(Stop *n) override {
     update_loc(n);
     if (!current_loop_exits.empty()) {
-      emit_loop_exits(current_loop_depths.back());
+      emit_loop_break_continue_cleanup();
       current_loop_exits.back().push_back(emit_jump(OP_JUMP));
     } else {
       throw CompileError("Syntax error: 'stop' outside loop at line " +
@@ -1250,7 +1381,7 @@ public:
   void visit(Skip *n) override {
     update_loc(n);
     if (!current_loop_starts.empty()) {
-      emit_loop_exits(current_loop_depths.back());
+      emit_loop_break_continue_cleanup();
       emit_loop(current_loop_starts.back());
     } else {
       throw CompileError("Syntax error: 'skip' outside loop at line " +
@@ -1300,10 +1431,14 @@ public:
   // try block with guaranteed always cleanup
   void visit(TryAlways *n) override {
     update_loc(n);
+    state->always_blocks.push_back(n->always_body);
+    state->current_try_depth++;
     int try_jump = emit_jump(OP_TRY);
     for (auto *s : n->try_body)
       compile_statement(s);
     emit_byte(OP_END_TRY);
+    state->current_try_depth--;
+    state->always_blocks.pop_back();
 
     for (auto *s : n->always_body)
       compile_statement(s);
@@ -1312,9 +1447,11 @@ public:
     patch_jump(try_jump);
     if (!n->catch_body.empty()) {
       begin_scope();
-      state->locals.push_back({std::string(n->catch_var), state->scope_depth});
+      state->locals.push_back({std::string(n->catch_var), state->scope_depth, false});
+      state->always_blocks.push_back(n->always_body);
       for (auto *s : n->catch_body)
         compile_statement(s);
+      state->always_blocks.pop_back();
       end_scope();
     } else {
       emit_byte(OP_POP);
