@@ -1,0 +1,5 @@
+to foo()
+    if false
+        y = 1
+    say y
+foo()

@@ -77,12 +77,17 @@ public:
     void push_temp_root(GCObject* obj);
     void remove_temp_root(GCObject* obj);
 
+    void push_gray(GCObject* obj) {
+        gray_worklist_.push_back(obj);
+    }
+
 private:
     void collect_internal();
 
     GCObject* first_object_ = nullptr;
     std::unordered_map<std::string, ObjString*> strings_;
     std::vector<GCObject*> temp_roots_;
+    std::vector<GCObject*> gray_worklist_;
     VM* vm_;
 
     size_t bytes_allocated_;

@@ -1,0 +1,11 @@
+to run_test()
+    try
+        try
+            say "in try"
+            error "kaboom"
+        always
+            say "in always"
+    catch e
+        say "caught outer: " + e
+
+run_test()

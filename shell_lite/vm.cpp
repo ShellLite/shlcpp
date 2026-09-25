@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <random>
 #include <sstream>
+#include <cassert>
 
 
 namespace fs = std::filesystem;
@@ -717,7 +718,9 @@ Value VM::run(int target_frame_depth) {
         int err_line = frame_info.empty() ? 0 : frame_info.back().line;
         int err_col = frame_info.empty() ? 0 : frame_info.back().col;
 
-        ErrorReporter::report(error_value, SourceLocation(src_file, err_line, err_col), btrace);
+        if (!suppress_error_report) {
+          ErrorReporter::report(error_value, SourceLocation(src_file, err_line, err_col), btrace);
+        }
         has_error = false;
         had_unhandled_error = true;
         while (!frames.empty()) {
@@ -745,12 +748,30 @@ Value VM::run(int target_frame_depth) {
     case OP_POP:
       pop();
       break;
-    case OP_GET_LOCAL:
-      push(frames.back().slots[read_short()]);
+    case OP_GET_LOCAL: {
+      uint16_t slot = read_short();
+      Value *target = frames.back().slots + slot;
+      if (target < stack || target >= stack + stack_capacity) {
+        has_error = true;
+        error_value =
+            Value(arena_.allocate_string("Stack overflow / invalid local slot"));
+        break;
+      }
+      push(*target);
       break;
-    case OP_SET_LOCAL:
-      frames.back().slots[read_short()] = peek(0);
+    }
+    case OP_SET_LOCAL: {
+      uint16_t slot = read_short();
+      Value *target = frames.back().slots + slot;
+      if (target < stack || target >= stack + stack_capacity) {
+        has_error = true;
+        error_value =
+            Value(arena_.allocate_string("Stack overflow / invalid local slot"));
+        break;
+      }
+      *target = peek(0);
       break;
+    }
     // grab global from module first, fallback to root globals
     case OP_GET_GLOBAL: {
       const std::string &name = read_string_ref();
@@ -826,11 +847,25 @@ Value VM::run(int target_frame_depth) {
     }
     case OP_GET_UPVALUE: {
       uint16_t idx = read_short();
+      if (frames.empty() || !frames.back().closure ||
+          idx >= frames.back().closure->upvalues.size() ||
+          !frames.back().closure->upvalues[idx]) {
+        has_error = true;
+        error_value = Value(arena_.allocate_string("Invalid upvalue access"));
+        break;
+      }
       push(*frames.back().closure->upvalues[idx]->location);
       break;
     }
     case OP_SET_UPVALUE: {
       uint16_t idx = read_short();
+      if (frames.empty() || !frames.back().closure ||
+          idx >= frames.back().closure->upvalues.size() ||
+          !frames.back().closure->upvalues[idx]) {
+        has_error = true;
+        error_value = Value(arena_.allocate_string("Invalid upvalue access"));
+        break;
+      }
       *frames.back().closure->upvalues[idx]->location = peek(0);
       break;
     }
@@ -1367,7 +1402,31 @@ Value VM::run(int target_frame_depth) {
                 arena_.allocate<BoundMethod>(instance, method_it->second);
             push(Value(bm));
           } else {
-            push(Value());
+            auto push_fallback_global = [&]() {
+              std::shared_ptr<GlobalsTable> target_globals = globals;
+              if (!frames.empty() && frames.back().closure &&
+                  frames.back().closure->module_globals) {
+                target_globals = frames.back().closure->module_globals;
+              }
+              {
+                std::shared_lock<std::shared_mutex> lock(target_globals->mutex);
+                auto it_g = target_globals->values.find(name);
+                if (it_g != target_globals->values.end()) {
+                  push(it_g->second);
+                  return;
+                }
+              }
+              if (target_globals != globals) {
+                std::shared_lock<std::shared_mutex> lock(globals->mutex);
+                auto it_g = globals->values.find(name);
+                if (it_g != globals->values.end()) {
+                  push(it_g->second);
+                  return;
+                }
+              }
+              push(Value());
+            };
+            push_fallback_global();
           }
         }
       } else {
@@ -1734,7 +1793,10 @@ Value VM::run(int target_frame_depth) {
       break;
     }
     case OP_END_TRY:
-      try_stack.pop_back();
+      assert(!try_stack.empty() && "OP_END_TRY on empty try_stack");
+      if (!try_stack.empty()) {
+        try_stack.pop_back();
+      }
       break;
     // raise error and kick off stack unwind
     case OP_THROW: {
@@ -1762,6 +1824,7 @@ Value VM::run(int target_frame_depth) {
         auto worker = std::make_shared<VM>(worker_globals);
         GCArena::set_current(&this->arena_);
         worker->search_paths = this->search_paths;
+        worker->suppress_error_report = true;
 
         std::unordered_map<GCObject *, GCObject *> clones;
         TableCloneScope table_scope(worker->arena(), clones);
@@ -1796,12 +1859,26 @@ Value VM::run(int target_frame_depth) {
               for (const auto &arg : isolated_args)
                 worker->push(arg);
 
+              int frame_count_before = (int)worker->frames.size();
               Value res;
               if (worker->call_value(isolated_callee, arg_count)) {
-                res = worker->run();
+                if ((int)worker->frames.size() > frame_count_before) {
+                  res = worker->run();
+                } else {
+                  res = worker->pop();
+                }
               }
+              bool task_failed = worker->has_error || worker->had_unhandled_error;
               std::ostringstream ss(std::ios::binary);
-              serialize_value(ss, res);
+              if (task_failed) {
+                uint8_t status = 1;
+                ss.write(reinterpret_cast<const char *>(&status), 1);
+                serialize_value(ss, worker->error_value);
+              } else {
+                uint8_t status = 0;
+                ss.write(reinterpret_cast<const char *>(&status), 1);
+                serialize_value(ss, res);
+              }
               promise->set_value(ss.str());
             });
 

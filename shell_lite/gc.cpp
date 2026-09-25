@@ -188,8 +188,11 @@ static size_t get_object_live_bytes(GCObject* obj) {
     return sz;
 }
 
-// full mark-sweep pass: clear marks, trace roots, sweep dead objects and bump threshold
 void GCArena::collect_internal() {
+    GCArena* prev_arena = GCArena::current();
+    GCArena::set_current(this);
+    gray_worklist_.clear();
+
     for (GCObject* obj = first_object_; obj != nullptr; obj = obj->next_gc) {
         obj->marked = false;
     }
@@ -210,9 +213,20 @@ void GCArena::collect_internal() {
         }
     }
 
+    while (!gray_worklist_.empty()) {
+        GCObject* obj = gray_worklist_.back();
+        gray_worklist_.pop_back();
+        if (obj->type == ObjType::TASK) {
+            auto* task = static_cast<ObjTask*>(obj);
+            if (task->completed) task->result.mark();
+        } else if (obj->type == ObjType::CHANNEL) {
+        } else {
+            obj->mark_children();
+        }
+    }
+
     size_t live_bytes = 0;
 
-    // clean dead interned strings BEFORE sweep so we don't use-after-free freed strings -_-
     for (auto it = strings_.begin(); it != strings_.end(); ) {
         if (!it->second->marked) {
             it = strings_.erase(it);
@@ -222,7 +236,6 @@ void GCArena::collect_internal() {
         }
     }
 
-    // sweep dead objects from intrusive list and reclaim memory
     GCObject* prev = nullptr;
     GCObject* curr = first_object_;
     while (curr != nullptr) {
@@ -244,19 +257,24 @@ void GCArena::collect_internal() {
 
     bytes_allocated_ = live_bytes;
     next_gc_ = std::max(initial_gc_threshold_, bytes_allocated_ * GC_GROWTH_FACTOR);
+    GCArena::set_current(prev_arena);
 }
 
 void Value::mark() {
     if (!is_obj() || !get_obj() || get_obj()->marked) return;
     get_obj()->marked = true;
-    
-    if (is_task()) {
-        auto* task = static_cast<ObjTask*>(get_obj());
-        if (task->completed) task->result.mark();
-    } else if (is_channel()) {
-        // channel queue has its own mutex and strings, no gc children
+
+    GCArena* arena = GCArena::current();
+    if (arena) {
+        arena->push_gray(get_obj());
     } else {
-        get_obj()->mark_children();
+        if (is_task()) {
+            auto* task = static_cast<ObjTask*>(get_obj());
+            if (task->completed) task->result.mark();
+        } else if (is_channel()) {
+        } else {
+            get_obj()->mark_children();
+        }
     }
 }
 

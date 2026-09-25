@@ -1,6 +1,7 @@
 #include "chunk.hpp"
 #include "value.hpp"
 #include "objects.hpp"
+#include "vm.hpp"
 #include <iostream>
 namespace shell_lite {
 
@@ -154,8 +155,12 @@ Chunk* Chunk::deserialize(std::istream& in, GCArena& arena) {
 }
 
 bool Chunk::verify() const {
+    if (code.empty()) return false;
+
+    std::vector<bool> is_instruction(code.size(), false);
     size_t ip = 0;
     while (ip < code.size()) {
+        is_instruction[ip] = true;
         uint8_t op = code[ip++];
         if (op > OP_HALT) return false;
         switch (op) {
@@ -177,7 +182,13 @@ bool Chunk::verify() const {
                 break;
             }
             case OP_GET_LOCAL:
-            case OP_SET_LOCAL:
+            case OP_SET_LOCAL: {
+                if (ip + 2 > code.size()) return false;
+                uint16_t slot = (uint16_t)((code[ip] << 8) | code[ip + 1]);
+                ip += 2;
+                if (slot >= VM::DEFAULT_STACK_CAPACITY) return false;
+                break;
+            }
             case OP_GET_UPVALUE:
             case OP_SET_UPVALUE: {
                 if (ip + 2 > code.size()) return false;
@@ -194,9 +205,7 @@ bool Chunk::verify() const {
             }
             case OP_FOR_ITER: {
                 if (ip + 2 > code.size()) return false;
-                uint16_t offset = (uint16_t)((code[ip] << 8) | code[ip + 1]);
                 ip += 2;
-                if (ip + offset > code.size()) return false;
                 break;
             }
             case OP_INVOKE: {
@@ -232,7 +241,73 @@ bool Chunk::verify() const {
                 break;
         }
     }
-    return ip == code.size();
+    if (ip != code.size()) return false;
+
+    ip = 0;
+    while (ip < code.size()) {
+        uint8_t op = code[ip++];
+        switch (op) {
+            case OP_CONSTANT:
+            case OP_GET_GLOBAL:
+            case OP_DEFINE_GLOBAL:
+            case OP_SET_GLOBAL:
+            case OP_GET_PROPERTY:
+            case OP_SET_PROPERTY:
+            case OP_CLASS:
+            case OP_METHOD:
+            case OP_PROPERTY:
+            case OP_GET_SELF_PROPERTY:
+            case OP_SET_SELF_PROPERTY:
+            case OP_GET_LOCAL:
+            case OP_SET_LOCAL:
+            case OP_GET_UPVALUE:
+            case OP_SET_UPVALUE: {
+                ip += 2;
+                break;
+            }
+            case OP_JUMP:
+            case OP_JUMP_IF_FALSE:
+            case OP_TRY:
+            case OP_FOR_ITER: {
+                uint16_t offset = (uint16_t)((code[ip] << 8) | code[ip + 1]);
+                ip += 2;
+                size_t target = ip + offset;
+                if (target >= code.size() || !is_instruction[target]) return false;
+                break;
+            }
+            case OP_LOOP: {
+                uint16_t offset = (uint16_t)((code[ip] << 8) | code[ip + 1]);
+                ip += 2;
+                if (ip < offset) return false;
+                size_t target = ip - offset;
+                if (target >= code.size() || !is_instruction[target]) return false;
+                break;
+            }
+            case OP_INVOKE: {
+                ip += 3;
+                break;
+            }
+            case OP_CLOSURE: {
+                uint16_t idx = (uint16_t)((code[ip] << 8) | code[ip + 1]);
+                ip += 2;
+                auto* fn = static_cast<ObjFunction*>(constants[idx].get_obj());
+                ip += fn->upvalue_count * 3;
+                break;
+            }
+            case OP_CALL:
+            case OP_NATIVE_CALL:
+            case OP_LIST:
+            case OP_DICT:
+            case OP_LIST_APPEND:
+            case OP_SPAWN: {
+                ip += 1;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return true;
 }
 
 } // namespace shell_lite

@@ -1,0 +1,8 @@
+to f(a, b)
+    if a
+        if b
+            y = 1
+    say y
+
+f(false, false)
+f(true, true)

@@ -1,0 +1,7 @@
+to my_func()
+    for x in [1, 2, 3]
+        if x == 1
+            y = 10
+        say x
+my_func()
+say "done"

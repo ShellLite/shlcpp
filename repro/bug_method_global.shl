@@ -1,0 +1,6 @@
+G = 42
+class Foo
+    to test()
+        say G
+f = Foo()
+f.test()

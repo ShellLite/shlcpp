@@ -59,10 +59,11 @@ struct ObjDatabase : public GCObject {
 struct ObjTask : public GCObject {
   std::shared_future<std::string> future;
   bool completed;
+  bool failed;
   Value result;
 
   explicit ObjTask(std::shared_future<std::string> f)
-      : GCObject(ObjType::TASK), future(std::move(f)), completed(false) {}
+      : GCObject(ObjType::TASK), future(std::move(f)), completed(false), failed(false) {}
   GCObject *clone(GCArena &target,
                   std::unordered_map<GCObject *, GCObject *> &clones) override {
     if (clones.count(this)) return clones[this];
@@ -70,6 +71,7 @@ struct ObjTask : public GCObject {
     clones[this] = t;
     if (completed) {
       t->completed = true;
+      t->failed = failed;
       t->result = result.clone_val(target, clones);
     }
     return t;

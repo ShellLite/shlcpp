@@ -23,6 +23,15 @@ struct CompilerState {
   int scope_depth;
   int current_try_depth;
   VM *vm;
+  std::vector<int> current_loop_starts;
+  std::vector<std::vector<int>> current_loop_exits;
+  std::vector<std::vector<int>> current_loop_continues;
+  std::vector<int> current_loop_continue_targets;
+  std::vector<int> current_loop_depths;
+  std::vector<int> current_loop_try_depths;
+  std::vector<int> current_loop_always_depths;
+  bool inlining_always = false;
+  int inlining_try_depth = -1;
 
   CompilerState(CompilerState *enc, const std::string &name,
                 const std::string &source_file, VM *vm_ptr)
@@ -64,18 +73,22 @@ public:
   std::string current_namespace;
   bool compiling_method = false;
 
-  std::vector<int> current_loop_starts;
-  std::vector<std::vector<int>> current_loop_exits;
-  std::vector<int> current_loop_depths;
-  std::vector<int> current_loop_try_depths;
-  std::vector<int> current_loop_always_depths;
-  bool inlining_always = false;
-
   struct InliningGuard {
-    bool &flag;
-    explicit InliningGuard(bool &f) : flag(f) { flag = true; }
-    ~InliningGuard() { flag = false; }
+    CompilerState *st;
+    bool prev_flag;
+    int prev_depth;
+    explicit InliningGuard(CompilerState *s) : st(s) {
+      prev_flag = st->inlining_always;
+      prev_depth = st->inlining_try_depth;
+      st->inlining_always = true;
+      st->inlining_try_depth = st->current_try_depth;
+    }
+    ~InliningGuard() {
+      st->inlining_always = prev_flag;
+      st->inlining_try_depth = prev_depth;
+    }
   };
+
   VM *vm;
 
   ProperCompiler(const std::string &source, VM *vm_ptr)
@@ -269,20 +282,23 @@ public:
   }
 
   void emit_loop_break_continue_cleanup() {
-    int tries_to_pop = state->current_try_depth - current_loop_try_depths.back();
+    int base_try_depth = (state->inlining_always && state->inlining_try_depth >= 0)
+                             ? state->inlining_try_depth
+                             : state->current_loop_try_depths.back();
+    int tries_to_pop = state->current_try_depth - base_try_depth;
     for (int i = 0; i < tries_to_pop; ++i) {
       emit_byte(OP_END_TRY);
     }
-    int always_target = current_loop_always_depths.back();
-    if ((int)state->always_blocks.size() > always_target && !inlining_always) {
-      InliningGuard guard(inlining_always);
+    int always_target = state->current_loop_always_depths.back();
+    if ((int)state->always_blocks.size() > always_target && !state->inlining_always) {
+      InliningGuard guard(state);
       for (int i = (int)state->always_blocks.size() - 1; i >= always_target; --i) {
         for (auto *s : state->always_blocks[i]) {
           compile_statement(s);
         }
       }
     }
-    emit_loop_exits(current_loop_depths.back());
+    emit_loop_exits(state->current_loop_depths.back());
   }
 
   // search locals backwards to grab var in active scope
@@ -317,6 +333,39 @@ public:
     if (upvalue != -1)
       return add_upvalue(c, (uint16_t)upvalue, false);
     return -1;
+  }
+
+  void collect_shallow_bindings(const std::vector<Node *> &stmts, std::vector<std::string> &names) {
+    for (auto *stmt : stmts) {
+      if (!stmt) continue;
+      if (auto *a = dynamic_cast<Assign *>(stmt)) {
+        std::string n(a->name);
+        if (resolve_local(state, n) == -1 &&
+            resolve_upvalue(state, n) == -1 &&
+            !(compiling_method && resolve_local(state, "self") != -1)) {
+          if (std::find(names.begin(), names.end(), n) == names.end()) {
+            names.push_back(n);
+          }
+        }
+      } else if (auto *ca = dynamic_cast<ConstAssign *>(stmt)) {
+        std::string n(ca->name);
+        if (resolve_local(state, n) == -1 &&
+            resolve_upvalue(state, n) == -1 &&
+            !(compiling_method && resolve_local(state, "self") != -1)) {
+          if (std::find(names.begin(), names.end(), n) == names.end()) {
+            names.push_back(n);
+          }
+        }
+      } else if (auto *if_node = dynamic_cast<If *>(stmt)) {
+        collect_shallow_bindings(if_node->body, names);
+        collect_shallow_bindings(if_node->else_body, names);
+      } else if (auto *try_node = dynamic_cast<Try *>(stmt)) {
+        collect_shallow_bindings(try_node->try_body, names);
+      } else if (auto *try_always_node = dynamic_cast<TryAlways *>(stmt)) {
+        collect_shallow_bindings(try_always_node->try_body, names);
+        collect_shallow_bindings(try_always_node->always_body, names);
+      }
+    }
   }
 
   void visit(Number *node) override {
@@ -444,11 +493,28 @@ public:
     node->condition->accept(this);
     int then_jump = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
+
+    std::vector<std::string> hoisted_names;
+    if (state->enclosing != nullptr && state->scope_depth > 0) {
+      collect_shallow_bindings(node->body, hoisted_names);
+      collect_shallow_bindings(node->else_body, hoisted_names);
+    }
+
+    for (const auto &name : hoisted_names) {
+      emit_byte(OP_NULL);
+      state->locals.push_back({name, state->scope_depth, false});
+    }
+
     for (auto *s : node->body)
       compile_statement(s);
     int else_jump = emit_jump(OP_JUMP);
     patch_jump(then_jump);
     emit_byte(OP_POP);
+
+    for (size_t i = 0; i < hoisted_names.size(); ++i) {
+      emit_byte(OP_NULL);
+    }
+
     for (auto *s : node->else_body)
       compile_statement(s);
     patch_jump(else_jump);
@@ -462,29 +528,37 @@ public:
                          {source_file, current_line, current_col});
     }
     int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(loop_start);
+    state->current_loop_continue_targets.push_back(loop_start);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     node->condition->accept(this);
     int exit_jump = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
+
+    begin_scope();
     for (auto *s : node->body)
       compile_statement(s);
+    end_scope();
+
     emit_loop(loop_start);
     patch_jump(exit_jump);
     emit_byte(OP_POP);
 
-    for (int exit : current_loop_exits.back()) {
+    for (int exit : state->current_loop_exits.back()) {
       patch_jump(exit);
     }
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // spin up sub-compiler for function body and emit closure
@@ -805,8 +879,8 @@ public:
     else
       emit_byte(OP_NULL);
 
-    if (!state->always_blocks.empty() && !inlining_always) {
-      InliningGuard guard(inlining_always);
+    if (!state->always_blocks.empty() && !state->inlining_always) {
+      InliningGuard guard(state);
       state->locals.push_back({"", state->scope_depth, false});
       int temp_slot = (int)state->locals.size() - 1;
       emit_byte(OP_SET_LOCAL);
@@ -970,15 +1044,17 @@ public:
     state->locals.push_back({"_iter", state->scope_depth});
 
     int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(loop_start);
+    state->current_loop_continue_targets.push_back(loop_start);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     int exit_jump = emit_jump(OP_FOR_ITER);
     begin_scope();
-    state->locals.push_back({std::string(node->var_name), state->scope_depth});
+    state->locals.push_back({std::string(node->var_name), state->scope_depth, false});
     for (auto *s : node->body)
       compile_statement(s);
     end_scope();
@@ -986,17 +1062,19 @@ public:
     emit_loop(loop_start);
 
     patch_jump(exit_jump);
-    for (int exit : current_loop_exits.back()) {
+    for (int exit : state->current_loop_exits.back()) {
       patch_jump(exit);
     }
     emit_byte(OP_POP);
     state->locals.pop_back();
 
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // declare class, register properties, attach methods and register into globals
@@ -1111,15 +1189,17 @@ public:
     state->locals.push_back({"", state->scope_depth});
 
     int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(loop_start);
+    state->current_loop_continue_targets.push_back(loop_start);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     int exit_jump = emit_jump(OP_FOR_ITER);
     begin_scope();
-    state->locals.push_back({std::string(node->var_name), state->scope_depth});
+    state->locals.push_back({std::string(node->var_name), state->scope_depth, false});
     int skip = -1;
     if (node->condition) {
       node->condition->accept(this);
@@ -1130,13 +1210,15 @@ public:
     emit_byte(OP_LIST_APPEND);
     emit_byte(2);
     if (skip != -1) {
+      int jump_over = emit_jump(OP_JUMP);
       patch_jump(skip);
       emit_byte(OP_POP);
+      patch_jump(jump_over);
     }
     end_scope();
     emit_loop(loop_start);
     patch_jump(exit_jump);
-    for (int exit : current_loop_exits.back()) {
+    for (int exit : state->current_loop_exits.back()) {
       patch_jump(exit);
     }
     emit_byte(OP_POP);
@@ -1144,11 +1226,13 @@ public:
     state->locals.pop_back();
     state->locals.pop_back();
 
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // anonymous lambda closure
@@ -1198,11 +1282,13 @@ public:
     uint16_t idx_slot = (uint16_t)(state->locals.size() - 1);
 
     int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(loop_start);
+    state->current_loop_continue_targets.push_back(-1);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
 
     emit_byte(OP_GET_LOCAL);
     emit_short(idx_slot);
@@ -1213,8 +1299,14 @@ public:
     int exit_jump = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
 
+    begin_scope();
     for (auto *s : body)
       compile_statement(s);
+    end_scope();
+
+    for (int continue_jump : state->current_loop_continues.back()) {
+      patch_jump(continue_jump);
+    }
 
     emit_byte(OP_GET_LOCAL);
     emit_short(idx_slot);
@@ -1229,7 +1321,7 @@ public:
     patch_jump(exit_jump);
     emit_byte(OP_POP);
 
-    for (int exit : current_loop_exits.back())
+    for (int exit : state->current_loop_exits.back())
       patch_jump(exit);
 
     emit_byte(OP_POP);
@@ -1238,11 +1330,13 @@ public:
     state->locals.pop_back();
     state->locals.pop_back();
 
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // repeat body N times
@@ -1269,49 +1363,61 @@ public:
   void visit(Forever *n) override {
     update_loc(n);
     int start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(start);
+    state->current_loop_continue_targets.push_back(start);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
+    begin_scope();
     for (auto *s : n->body)
       compile_statement(s);
+    end_scope();
     emit_loop(start);
-    for (int exit : current_loop_exits.back())
+    for (int exit : state->current_loop_exits.back())
       patch_jump(exit);
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // loop until condition hits true
   void visit(Until *n) override {
     update_loc(n);
     int loop_start = (int)state->function->chunk->code.size();
-    current_loop_starts.push_back(loop_start);
-    current_loop_exits.push_back(std::vector<int>());
-    current_loop_depths.push_back(state->scope_depth);
-    current_loop_try_depths.push_back(state->current_try_depth);
-    current_loop_always_depths.push_back((int)state->always_blocks.size());
+    state->current_loop_starts.push_back(loop_start);
+    state->current_loop_continue_targets.push_back(loop_start);
+    state->current_loop_continues.push_back(std::vector<int>());
+    state->current_loop_exits.push_back(std::vector<int>());
+    state->current_loop_depths.push_back(state->scope_depth);
+    state->current_loop_try_depths.push_back(state->current_try_depth);
+    state->current_loop_always_depths.push_back((int)state->always_blocks.size());
     n->condition->accept(this);
     int run_body = emit_jump(OP_JUMP_IF_FALSE);
     emit_byte(OP_POP);
     int exit_jump = emit_jump(OP_JUMP);
     patch_jump(run_body);
     emit_byte(OP_POP);
+    begin_scope();
     for (auto *s : n->body)
       compile_statement(s);
+    end_scope();
     emit_loop(loop_start);
     patch_jump(exit_jump);
-    for (int exit : current_loop_exits.back())
+    for (int exit : state->current_loop_exits.back())
       patch_jump(exit);
-    current_loop_starts.pop_back();
-    current_loop_exits.pop_back();
-    current_loop_depths.pop_back();
-    current_loop_try_depths.pop_back();
-    current_loop_always_depths.pop_back();
+    state->current_loop_starts.pop_back();
+    state->current_loop_continue_targets.pop_back();
+    state->current_loop_continues.pop_back();
+    state->current_loop_exits.pop_back();
+    state->current_loop_depths.pop_back();
+    state->current_loop_try_depths.pop_back();
+    state->current_loop_always_depths.pop_back();
   }
 
   // load module into globals
@@ -1368,21 +1474,25 @@ public:
   // clean up stack locals and jump out of loop
   void visit(Stop *n) override {
     update_loc(n);
-    if (!current_loop_exits.empty()) {
+    if (!state->current_loop_exits.empty()) {
       emit_loop_break_continue_cleanup();
-      current_loop_exits.back().push_back(emit_jump(OP_JUMP));
+      state->current_loop_exits.back().push_back(emit_jump(OP_JUMP));
     } else {
       throw CompileError("Syntax error: 'stop' outside loop at line " +
                          std::to_string(current_line));
     }
   }
 
-  // clean up stack locals and rewind loop
   void visit(Skip *n) override {
     update_loc(n);
-    if (!current_loop_starts.empty()) {
+    if (!state->current_loop_starts.empty()) {
       emit_loop_break_continue_cleanup();
-      emit_loop(current_loop_starts.back());
+      int continue_target = state->current_loop_continue_targets.back();
+      if (continue_target != -1) {
+        emit_loop(continue_target);
+      } else {
+        state->current_loop_continues.back().push_back(emit_jump(OP_JUMP));
+      }
     } else {
       throw CompileError("Syntax error: 'skip' outside loop at line " +
                          std::to_string(current_line));
@@ -1428,24 +1538,23 @@ public:
     emit_byte(OP_POP);
   }
 
-  // try block with guaranteed always cleanup
   void visit(TryAlways *n) override {
     update_loc(n);
-    state->always_blocks.push_back(n->always_body);
-    state->current_try_depth++;
-    int try_jump = emit_jump(OP_TRY);
-    for (auto *s : n->try_body)
-      compile_statement(s);
-    emit_byte(OP_END_TRY);
-    state->current_try_depth--;
-    state->always_blocks.pop_back();
-
-    for (auto *s : n->always_body)
-      compile_statement(s);
-    int exit_jump = emit_jump(OP_JUMP);
-
-    patch_jump(try_jump);
     if (!n->catch_body.empty()) {
+      state->always_blocks.push_back(n->always_body);
+      state->current_try_depth++;
+      int try_jump = emit_jump(OP_TRY);
+      for (auto *s : n->try_body)
+        compile_statement(s);
+      emit_byte(OP_END_TRY);
+      state->current_try_depth--;
+      state->always_blocks.pop_back();
+
+      for (auto *s : n->always_body)
+        compile_statement(s);
+      int exit_jump = emit_jump(OP_JUMP);
+
+      patch_jump(try_jump);
       begin_scope();
       state->locals.push_back({std::string(n->catch_var), state->scope_depth, false});
       state->always_blocks.push_back(n->always_body);
@@ -1453,12 +1562,42 @@ public:
         compile_statement(s);
       state->always_blocks.pop_back();
       end_scope();
+
+      for (auto *s : n->always_body)
+        compile_statement(s);
+      patch_jump(exit_jump);
     } else {
+      emit_byte(OP_NULL);
+      state->locals.push_back({"", state->scope_depth, false});
+      int err_slot = (int)state->locals.size() - 1;
+
+      state->always_blocks.push_back(n->always_body);
+      state->current_try_depth++;
+      int try_jump = emit_jump(OP_TRY);
+      for (auto *s : n->try_body)
+        compile_statement(s);
+      emit_byte(OP_END_TRY);
+      state->current_try_depth--;
+      state->always_blocks.pop_back();
+
+      for (auto *s : n->always_body)
+        compile_statement(s);
       emit_byte(OP_POP);
+      state->locals.pop_back();
+      int exit_jump = emit_jump(OP_JUMP);
+
+      patch_jump(try_jump);
+      emit_byte(OP_SET_LOCAL);
+      emit_short((uint16_t)err_slot);
+      emit_byte(OP_POP);
+      for (auto *s : n->always_body)
+        compile_statement(s);
+      emit_byte(OP_GET_LOCAL);
+      emit_short((uint16_t)err_slot);
+      emit_byte(OP_THROW);
+
+      patch_jump(exit_jump);
     }
-    for (auto *s : n->always_body)
-      compile_statement(s);
-    patch_jump(exit_jump);
   }
 
   void visit(For *n) override {

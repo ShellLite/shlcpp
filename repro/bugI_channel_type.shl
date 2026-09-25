@@ -1,0 +1,9 @@
+try
+    chan_send(123, "val")
+catch e
+    say "caught send error"
+
+try
+    chan_recv("not a chan")
+catch e
+    say "caught recv error"

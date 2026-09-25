@@ -83,6 +83,7 @@ public:
 
     bool has_error;
     bool had_unhandled_error = false;
+    bool suppress_error_report = false;
     Value error_value;
 
     struct UIWidget {

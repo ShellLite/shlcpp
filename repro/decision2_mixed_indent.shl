@@ -1,0 +1,4 @@
+to foo()
+	    say 1
+
+foo()

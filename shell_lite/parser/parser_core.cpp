@@ -19,6 +19,14 @@ std::vector<Node *> Parser::parse_with_topography(TopographyResult topo) {
     flat_nodes_ = std::move(topo.nodes);
     diagnostics_ = std::move(topo.diagnostics);
 
+    for (const auto &diag : diagnostics_) {
+      std::string msg = diag.what();
+      if (msg.find("IndentationError") != std::string::npos ||
+          msg.find("mixed tabs and spaces") != std::string::npos) {
+        throw diag;
+      }
+    }
+
     if (flat_nodes_.empty()) {
       if (!diagnostics_.empty()) {
         throw diagnostics_.front();

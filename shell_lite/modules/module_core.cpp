@@ -279,8 +279,22 @@ void register_stdlib_core(VM *vm) {
           }
           std::string payload = task->future.get();
           std::istringstream ss(payload, std::ios::binary);
-          task->result = deserialize_value(ss, vm->arena());
-          task->completed = true;
+          uint8_t status = 0;
+          ss.read(reinterpret_cast<char *>(&status), 1);
+          if (status == 1) {
+            task->failed = true;
+            task->result = deserialize_value(ss, vm->arena());
+            task->completed = true;
+          } else {
+            task->failed = false;
+            task->result = deserialize_value(ss, vm->arena());
+            task->completed = true;
+          }
+        }
+        if (task->failed) {
+          vm->has_error = true;
+          vm->error_value = task->result;
+          return Value();
         }
         return task->result;
       });
@@ -419,14 +433,17 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel", -1, chan_open_fn);
   NativeRegistry::register_builtin(vm, "chan_open", -1, chan_open_fn);
 
-  // send val through channel and mark shared
   auto chan_send_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 2)
       return Value();
     Value v_chan = vm->peek(1);
     Value v_val = vm->peek(0);
-    if (!v_chan.is_channel())
+    if (!v_chan.is_channel()) {
+      vm->has_error = true;
+      vm->error_value =
+          Value(vm->arena().allocate_string("Expected channel for send"));
       return Value();
+    }
     ObjChannel *chan = static_cast<ObjChannel *>(v_chan.get_obj());
     chan->send_shared(v_val);
     return Value(true);
@@ -434,14 +451,17 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel_send", -1, chan_send_fn);
   NativeRegistry::register_builtin(vm, "chan_send", -1, chan_send_fn);
 
-  // transfer ownership into channel and null sender
   auto chan_transfer_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 2)
       return Value();
     Value v_chan = vm->peek(1);
     Value v_val = vm->peek(0);
-    if (!v_chan.is_channel())
+    if (!v_chan.is_channel()) {
+      vm->has_error = true;
+      vm->error_value =
+          Value(vm->arena().allocate_string("Expected channel for transfer"));
       return Value();
+    }
     ObjChannel *chan = static_cast<ObjChannel *>(v_chan.get_obj());
     chan->transfer(v_val);
     return Value(true);
@@ -449,26 +469,32 @@ void register_stdlib_core(VM *vm) {
   NativeRegistry::register_builtin(vm, "channel_transfer", -1, chan_transfer_fn);
   NativeRegistry::register_builtin(vm, "chan_transfer", -1, chan_transfer_fn);
 
-  // receive next message or wait until sender cooks one up
   auto chan_recv_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 1)
       return Value();
     Value v_chan = vm->peek(0);
-    if (!v_chan.is_channel())
+    if (!v_chan.is_channel()) {
+      vm->has_error = true;
+      vm->error_value =
+          Value(vm->arena().allocate_string("Expected channel for receive"));
       return Value();
+    }
     ObjChannel *chan = static_cast<ObjChannel *>(v_chan.get_obj());
     return chan->receive(vm->arena());
   };
   NativeRegistry::register_builtin(vm, "channel_receive", -1, chan_recv_fn);
   NativeRegistry::register_builtin(vm, "chan_recv", -1, chan_recv_fn);
 
-  // close channel and wake up any waiting workers
   auto chan_close_fn = [](VM *vm, int arg_count) -> Value {
     if (arg_count != 1)
       return Value();
     Value v_chan = vm->peek(0);
-    if (!v_chan.is_channel())
+    if (!v_chan.is_channel()) {
+      vm->has_error = true;
+      vm->error_value =
+          Value(vm->arena().allocate_string("Expected channel for close"));
       return Value();
+    }
     ObjChannel *chan = static_cast<ObjChannel *>(v_chan.get_obj());
     chan->close();
     return Value(true);
@@ -515,8 +541,22 @@ void register_stdlib_core(VM *vm) {
               }
               std::string payload = task->future.get();
               std::istringstream ss(payload, std::ios::binary);
-              task->result = deserialize_value(ss, vm->arena());
-              task->completed = true;
+              uint8_t status = 0;
+              ss.read(reinterpret_cast<char *>(&status), 1);
+              if (status == 1) {
+                task->failed = true;
+                task->result = deserialize_value(ss, vm->arena());
+                task->completed = true;
+              } else {
+                task->failed = false;
+                task->result = deserialize_value(ss, vm->arena());
+                task->completed = true;
+              }
+            }
+            if (task->failed) {
+              vm->has_error = true;
+              vm->error_value = task->result;
+              return Value();
             }
             results->elements.push_back(task->result);
           } else {

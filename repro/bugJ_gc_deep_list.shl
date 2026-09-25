@@ -1,0 +1,15 @@
+l = []
+curr = l
+i = 0
+while i < 100000
+    next_node = []
+    curr.push(next_node)
+    curr = next_node
+    i = i + 1
+
+j = 0
+while j < 50000
+    dummy = [1, 2, 3]
+    j = j + 1
+
+say "done"

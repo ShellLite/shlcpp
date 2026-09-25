@@ -1,0 +1,6 @@
+count = 0
+repeat 5 times
+    count = count + 1
+    if count == 2
+        skip
+say count
