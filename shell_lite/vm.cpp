@@ -941,6 +941,23 @@ Value VM::run(int target_frame_depth) {
       push(a / b);
       break;
     }
+    case OP_FLOORDIV: {
+      Value b = pop();
+      Value a = pop();
+      if (!a.is_number() || !b.is_number()) {
+        has_error = true;
+        error_value =
+            Value(arena_.allocate_string("Operands must be numbers for //"));
+        break;
+      }
+      if (b.as_number() == 0) {
+        has_error = true;
+        error_value = Value(arena_.allocate_string("Division by zero"));
+        break;
+      }
+      push(Value(std::floor(a.as_number() / b.as_number())));
+      break;
+    }
     case OP_MOD: {
       Value b = pop();
       Value a = pop();
@@ -1148,6 +1165,9 @@ Value VM::run(int target_frame_depth) {
     case OP_PRINT:
       std::cout << pop().to_string() << std::endl;
       break;
+    case OP_PRINT_ERR:
+      std::cerr << pop().to_string() << std::endl;
+      break;
     case OP_PRINT_COLOR: {
       std::string style = pop().as_string();
       std::string color = pop().as_string();
@@ -1172,6 +1192,33 @@ Value VM::run(int target_frame_depth) {
         std::cout << ansi << text << "\033[0m" << std::endl;
       } else {
         std::cout << text << std::endl;
+      }
+      break;
+    }
+    case OP_PRINT_ERR_COLOR: {
+      std::string style = pop().as_string();
+      std::string color = pop().as_string();
+      std::string text = pop().to_string();
+
+      std::string ansi = "";
+      if (color == "red") ansi += "\033[31m";
+      else if (color == "green") ansi += "\033[32m";
+      else if (color == "yellow") ansi += "\033[33m";
+      else if (color == "blue") ansi += "\033[34m";
+      else if (color == "magenta" || color == "purple") ansi += "\033[35m";
+      else if (color == "cyan") ansi += "\033[36m";
+      else if (color == "white") ansi += "\033[37m";
+      else if (color == "gray" || color == "grey") ansi += "\033[90m";
+
+      if (style == "bold") ansi += "\033[1m";
+      else if (style == "dim") ansi += "\033[2m";
+      else if (style == "italic") ansi += "\033[3m";
+      else if (style == "underline") ansi += "\033[4m";
+
+      if (!ansi.empty()) {
+        std::cerr << ansi << text << "\033[0m" << std::endl;
+      } else {
+        std::cerr << text << std::endl;
       }
       break;
     }

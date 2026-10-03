@@ -10,10 +10,12 @@ const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"loop", TokenType::TOK_LOOP}, {"times", TokenType::TOK_TIMES}, {"while", TokenType::TOK_WHILE},
     {"until", TokenType::TOK_UNTIL}, {"repeat", TokenType::TOK_REPEAT}, {"forever", TokenType::TOK_FOREVER},
     {"stop", TokenType::TOK_STOP}, {"skip", TokenType::TOK_SKIP}, {"exit", TokenType::TOK_EXIT},
+    {"pass", TokenType::TOK_PASS},
     {"each", TokenType::TOK_EACH}, {"check", TokenType::TOK_CHECK}, {"unless", TokenType::TOK_UNLESS},
     {"when", TokenType::TOK_WHEN}, {"otherwise", TokenType::TOK_OTHERWISE}, {"then", TokenType::TOK_THEN},
     {"do", TokenType::TOK_DO}, {"begin", TokenType::TOK_BEGIN}, {"end", TokenType::TOK_END},
     {"print", TokenType::TOK_PRINT}, {"say", TokenType::TOK_SAY}, {"show", TokenType::TOK_SAY},
+    {"esay", TokenType::TOK_ESAY},
     {"input", TokenType::TOK_INPUT}, {"ask", TokenType::TOK_ASK}, {"to", TokenType::TOK_TO},
     {"can", TokenType::TOK_TO}, {"def", TokenType::TOK_FUNCTION}, {"return", TokenType::TOK_RETURN}, {"give", TokenType::TOK_RETURN},
     {"take", TokenType::TOK_TAKE}, {"structure", TokenType::TOK_STRUCTURE}, {"thing", TokenType::TOK_STRUCTURE},
@@ -124,6 +126,7 @@ void Lexer::skip_whitespace_and_comments() {
         } else if (c == '/' && peek_next() == '*') {
             advance(); advance();
             in_multiline_comment_ = true;
+            block_comment_start_line_ = line_;
             while (!is_at_end()) {
                 if (peek() == '*' && peek_next() == '/') {
                     advance(); advance();
@@ -198,6 +201,26 @@ Token Lexer::read_identifier_or_keyword() {
 Token Lexer::read_number() {
     size_t start = pos_;
     int start_col = col_;
+    if (peek() == '0' && pos_ + 1 < source_.size()) {
+        char p = source_[pos_ + 1];
+        if (p == 'x' || p == 'X' || p == 'b' || p == 'B' || p == 'o' || p == 'O') {
+            advance(); advance();
+            size_t dstart = pos_;
+            while (!is_at_end() && isalnum(peek())) advance();
+            bool ok = pos_ > dstart;
+            for (size_t i = dstart; ok && i < pos_; i++) {
+                char d = source_[i];
+                bool valid = (p == 'x' || p == 'X')
+                    ? (isdigit(d) || (d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))
+                    : (p == 'b' || p == 'B') ? (d == '0' || d == '1')
+                    : (d >= '0' && d <= '7');
+                if (!valid) ok = false;
+            }
+            if (!ok)
+                return Token(TokenType::TOK_ILLEGAL, source_.substr(start, pos_ - start), line_, start_col);
+            return Token(TokenType::TOK_NUMBER, source_.substr(start, pos_ - start), line_, start_col);
+        }
+    }
     while (!is_at_end() && isdigit(peek())) advance();
     if (!is_at_end() && peek() == '.' && isdigit(peek_next())) {
         advance();
@@ -265,6 +288,7 @@ Token Lexer::read_operator() {
             if (peek() == '*') { advance(); return Token(TokenType::TOK_POW, source_.substr(start, 2), line_, start_col); }
             return Token(TokenType::TOK_MUL_OP, source_.substr(start, 1), line_, start_col);
         case '/':
+            if (peek() == '/') { advance(); return Token(TokenType::TOK_FLOORDIV, source_.substr(start, 2), line_, start_col); }
             if (peek() == '=') { advance(); return Token(TokenType::TOK_DIVEQ, source_.substr(start, 2), line_, start_col); }
             return Token(TokenType::TOK_DIV_OP, source_.substr(start, 1), line_, start_col);
         case '%':
@@ -285,9 +309,15 @@ Token Lexer::read_operator() {
             if (peek() == '=') { advance(); return Token(TokenType::TOK_GE, source_.substr(start, 2), line_, start_col); }
             if (peek() == '>') { advance(); return Token(TokenType::TOK_RSHIFT, source_.substr(start, 2), line_, start_col); }
             return Token(TokenType::TOK_OP_GT, source_.substr(start, 1), line_, start_col);
-        case '&': return Token(TokenType::TOK_BIT_AND, source_.substr(start, 1), line_, start_col);
-        case '|': return Token(TokenType::TOK_BIT_OR, source_.substr(start, 1), line_, start_col);
-        case '^': return Token(TokenType::TOK_BIT_XOR, source_.substr(start, 1), line_, start_col);
+        case '&':
+            if (peek() == '=') { advance(); return Token(TokenType::TOK_ANDEQ, source_.substr(start, 2), line_, start_col); }
+            return Token(TokenType::TOK_BIT_AND, source_.substr(start, 1), line_, start_col);
+        case '|':
+            if (peek() == '=') { advance(); return Token(TokenType::TOK_OREQ, source_.substr(start, 2), line_, start_col); }
+            return Token(TokenType::TOK_BIT_OR, source_.substr(start, 1), line_, start_col);
+        case '^':
+            if (peek() == '=') { advance(); return Token(TokenType::TOK_XOREQ, source_.substr(start, 2), line_, start_col); }
+            return Token(TokenType::TOK_BIT_XOR, source_.substr(start, 1), line_, start_col);
         case '~': return Token(TokenType::TOK_BIT_NOT, source_.substr(start, 1), line_, start_col);
         case '?': return Token(TokenType::TOK_OP_QUESTION, source_.substr(start, 1), line_, start_col);
     }

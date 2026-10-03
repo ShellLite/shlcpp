@@ -128,9 +128,7 @@ Node *Parser::SubParser::parse_opg() {
 
     if (expect_operand) {
       if (token.type == TokenType::TOK_NUMBER) {
-        double val = 0;
-        std::from_chars(token.value.data(),
-                        token.value.data() + token.value.size(), val);
+        double val = parse_number_literal(token.value);
         output_stack.push_back(arena_.emplace<Number>(val));
         expect_operand = false;
       } else if (token.type == TokenType::TOK_STRING) {
@@ -420,10 +418,12 @@ Node *Parser::SubParser::parse_additive() {
 Node *Parser::SubParser::parse_multiplicative() {
   Node *node = parse_power();
   while (match(
-      {TokenType::TOK_MUL_OP, TokenType::TOK_DIV_OP, TokenType::TOK_MOD_OP})) {
+      {TokenType::TOK_MUL_OP, TokenType::TOK_DIV_OP, TokenType::TOK_MOD_OP,
+       TokenType::TOK_FLOORDIV})) {
     Token op = previous();
     std::string_view op_str = (op.type == TokenType::TOK_MUL_OP)   ? "*"
                               : (op.type == TokenType::TOK_DIV_OP) ? "/"
+                              : (op.type == TokenType::TOK_FLOORDIV) ? "//"
                               : "%";
     Node *right = parse_power();
     if (!right)
@@ -650,13 +650,7 @@ Node *Parser::SubParser::parse_primary() {
     return n;
   }
   if (match(TokenType::TOK_NUMBER)) {
-    double val = 0;
-    try {
-      std::string s(previous().value);
-      val = std::stod(s);
-    } catch (...) {
-      val = 0;
-    }
+    double val = parse_number_literal(previous().value);
     return arena_.emplace<Number>(val);
   }
   if (match(TokenType::TOK_STRING))

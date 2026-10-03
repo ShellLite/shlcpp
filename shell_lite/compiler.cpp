@@ -236,6 +236,8 @@ public:
       emit_byte(OP_MULTIPLY);
     else if (op == "/")
       emit_byte(OP_DIVIDE);
+    else if (op == "//")
+      emit_byte(OP_FLOORDIV);
     else if (op == "==")
       emit_byte(OP_EQUAL);
     else if (op == "!=")
@@ -513,6 +515,16 @@ public:
                          {source_file, current_line, current_col});
     }
     node->expression->accept(this);
+    if (node->to_stderr) {
+      if (node->color || node->style) {
+        emit_string_constant(std::string(node->color.value_or("none")));
+        emit_string_constant(std::string(node->style.value_or("none")));
+        emit_byte(OP_PRINT_ERR_COLOR);
+      } else {
+        emit_byte(OP_PRINT_ERR);
+      }
+      return;
+    }
     if (node->color || node->style) {
       emit_string_constant(std::string(node->color.value_or("none")));
       emit_string_constant(std::string(node->style.value_or("none")));
@@ -1563,6 +1575,10 @@ public:
       emit_byte(OP_NULL);
     emit_byte(OP_IMPORT);
     emit_byte(OP_POP);
+  }
+
+  void visit(Pass *n) override {
+    update_loc(n);
   }
 
   // clean up stack locals and jump out of loop

@@ -37,7 +37,9 @@ enum class TokenType {
 
     TOK_PLUS_OP, TOK_MINUS_OP, TOK_MUL_OP, TOK_DIV_OP, TOK_MOD_OP, TOK_BIT_AND, TOK_BIT_OR, TOK_BIT_XOR, TOK_BIT_NOT,
     TOK_ASSIGN, TOK_ARROW, TOK_EQ, TOK_NEQ, TOK_LE, TOK_GE, TOK_PLUSEQ, TOK_MINUSEQ, TOK_MULEQ, TOK_DIVEQ, TOK_MODEQ,
+    TOK_ANDEQ, TOK_OREQ, TOK_XOREQ, TOK_FLOORDIV,
     TOK_POW, TOK_LSHIFT, TOK_RSHIFT, TOK_DOTDOTDOT, TOK_OP_LT, TOK_OP_GT, TOK_OP_QUESTION, TOK_COLON_COLON, TOK_NAMESPACE,
+    TOK_PASS, TOK_ESAY,
 
 
     TOK_LPAREN, TOK_RPAREN, TOK_LBRACKET, TOK_RBRACKET, TOK_LBRACE, TOK_RBRACE, TOK_COLON, TOK_COMMA, TOK_DOT,
@@ -61,6 +63,8 @@ public:
     explicit Lexer(std::string_view source);
     std::vector<Token> tokenize();
     std::vector<Token> tokenize_line_only(std::string_view line, int line_num);
+    bool in_block_comment() const { return in_multiline_comment_; }
+    int block_comment_start_line() const { return block_comment_start_line_; }
 
 private:
     std::string_view source_;
@@ -71,6 +75,7 @@ private:
     std::vector<int> indent_stack_ = {0};
     int bracket_depth_ = 0;
     bool in_multiline_comment_ = false;
+    int block_comment_start_line_ = 1;
 
     Token next_token();
     void skip_whitespace_and_comments();

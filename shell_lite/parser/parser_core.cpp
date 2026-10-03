@@ -22,7 +22,8 @@ std::vector<Node *> Parser::parse_with_topography(TopographyResult topo) {
     for (const auto &diag : diagnostics_) {
       std::string msg = diag.what();
       if (msg.find("IndentationError") != std::string::npos ||
-          msg.find("mixed tabs and spaces") != std::string::npos) {
+          msg.find("mixed tabs and spaces") != std::string::npos ||
+          msg.find("Unclosed block comment") != std::string::npos) {
         throw diag;
       }
     }
@@ -61,6 +62,13 @@ std::vector<Node *> Parser::parse_with_topography(TopographyResult topo) {
       if (depth > 0)
         complex = true;
       flat_nodes_[i].is_complex = complex;
+    }
+
+    if (lexer.in_block_comment()) {
+      int bl = lexer.block_comment_start_line();
+      std::string sl = extract_source_line(source_code_, bl);
+      throw SyntaxError("Unclosed block comment '/*'",
+                        SourceLocation{"", bl, 1, sl, "add closing '*/'"});
     }
 
     phase2_topology_linking(flat_nodes_);
@@ -184,6 +192,7 @@ Node *Parser::bind_node(int index) {
       head.type == TokenType::TOK_FOR || head.type == TokenType::TOK_REPEAT ||
       head.type == TokenType::TOK_FOREVER ||
       head.type == TokenType::TOK_PRINT || head.type == TokenType::TOK_SAY ||
+      head.type == TokenType::TOK_ESAY ||
       head.type == TokenType::TOK_RETURN || head.type == TokenType::TOK_TO ||
       head.type == TokenType::TOK_FUNCTION ||
       head.type == TokenType::TOK_STRUCTURE ||
@@ -193,6 +202,7 @@ Node *Parser::bind_node(int index) {
       head.type == TokenType::TOK_AWAIT || head.type == TokenType::TOK_EXIT ||
       head.type == TokenType::TOK_STOP || head.type == TokenType::TOK_SKIP ||
       head.type == TokenType::TOK_DEL ||
+      head.type == TokenType::TOK_PASS ||
       head.type == TokenType::TOK_PARALLEL ||
       head.type == TokenType::TOK_LOCK || head.type == TokenType::TOK_SEND ||
       head.type == TokenType::TOK_RECEIVE ||
@@ -221,6 +231,9 @@ Node *Parser::bind_node(int index) {
         tokens[k].type == TokenType::TOK_MULEQ ||
         tokens[k].type == TokenType::TOK_DIVEQ ||
         tokens[k].type == TokenType::TOK_MODEQ ||
+        tokens[k].type == TokenType::TOK_ANDEQ ||
+        tokens[k].type == TokenType::TOK_OREQ ||
+        tokens[k].type == TokenType::TOK_XOREQ ||
         tokens[k].type == TokenType::TOK_IS ||
         tokens[k].type == TokenType::TOK_BE) {
       assign_idx = k;
@@ -305,6 +318,7 @@ Node *Parser::bind_head_dispatcher(int index, TokenType type) {
     return bind_forever(index);
   case TokenType::TOK_PRINT:
   case TokenType::TOK_SAY:
+  case TokenType::TOK_ESAY:
     return bind_print(index);
   case TokenType::TOK_RETURN:
     return bind_return(index);
@@ -335,6 +349,8 @@ Node *Parser::bind_head_dispatcher(int index, TokenType type) {
     return bind_skip(index);
   case TokenType::TOK_DEL:
     return bind_del(index);
+  case TokenType::TOK_PASS:
+    return bind_pass(index);
   case TokenType::TOK_PARALLEL:
     return bind_parallel(index);
   case TokenType::TOK_LOCK:
@@ -462,6 +478,7 @@ int Parser::get_precedence(TokenType type) {
   case TokenType::TOK_MUL_OP:
   case TokenType::TOK_DIV_OP:
   case TokenType::TOK_MOD_OP:
+  case TokenType::TOK_FLOORDIV:
     return 60;
   case TokenType::TOK_POW:
     return 70;
@@ -480,6 +497,8 @@ std::string_view Parser::op_to_str(TokenType type) {
     return "*";
   case TokenType::TOK_DIV_OP:
     return "/";
+  case TokenType::TOK_FLOORDIV:
+    return "//";
   case TokenType::TOK_MOD_OP:
     return "%";
   case TokenType::TOK_POW:

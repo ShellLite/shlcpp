@@ -87,6 +87,9 @@ enum OpCode : uint8_t {
   OP_DEL,
   OP_SET_DEFAULTS,
   OP_CALL_PARENT_INIT,
+  OP_FLOORDIV,
+  OP_PRINT_ERR,
+  OP_PRINT_ERR_COLOR,
   OP_HALT
 };
 

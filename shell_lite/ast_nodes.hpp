@@ -15,7 +15,7 @@ struct Boolean; struct FunctionDef; struct AnonymousFunction; struct Call; struc
 struct ClassDef; struct Instantiation; struct MethodCall; struct PropertyAccess;
 struct Import; struct ImportAs; struct Try; struct TryAlways; struct Match;
 struct ListComprehension; struct ConstAssign; struct IndexAccess; struct IndexAssign;
-struct Stop; struct Skip; struct Throw; struct PythonImport; struct FromImport;
+struct Stop; struct Skip; struct Throw; struct PythonImport; struct FromImport; struct Pass;
 struct For; struct Unless; struct Repeat; struct Forever; struct Until;
 struct Spawn; struct Parallel;
 struct SliceNode; struct DbInsertNode; struct DbQueryNode; struct DbFindNode; struct DbDeleteNode;
@@ -59,6 +59,7 @@ public:
     virtual void visit(IndexAccess* node) = 0;
     virtual void visit(IndexAssign* node) = 0;
     virtual void visit(Stop* node) = 0;
+    virtual void visit(Pass* node) = 0;
     virtual void visit(Skip* node) = 0;
     virtual void visit(Throw* node) = 0;
     virtual void visit(PythonImport* node) = 0;
@@ -174,6 +175,7 @@ struct Print : Node {
     Node* expression;
     std::optional<std::string_view> style;
     std::optional<std::string_view> color;
+    bool to_stderr = false;
     explicit Print(Node* e = nullptr) : expression(e) {}
     std::string node_type() const override { return "Print"; }
     void accept(Visitor* v) override { v->visit(this); }
@@ -380,6 +382,10 @@ struct IndexAssign : Node {
 
 struct Stop : Node {
     std::string node_type() const override { return "Stop"; }
+    void accept(Visitor* v) override { v->visit(this); }
+};
+struct Pass : Node {
+    std::string node_type() const override { return "Pass"; }
     void accept(Visitor* v) override { v->visit(this); }
 };
 struct Skip : Node {

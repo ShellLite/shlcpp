@@ -138,6 +138,7 @@ Node *Parser::bind_print(int index) {
   node->expression = expr;
   node->style = style;
   node->color = color;
+  node->to_stderr = get_effective_head(index).type == TokenType::TOK_ESAY;
   set_node_loc(node, index);
   return node;
 }

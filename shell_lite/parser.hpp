@@ -106,6 +106,7 @@ private:
   Node *bind_repeat(int index);
   Node *bind_forever(int index);
   Node *bind_print(int index);
+  Node *bind_pass(int index);
   Node *bind_const(int index);
   Node *bind_return(int index);
   Node *bind_func(int index);

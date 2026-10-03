@@ -187,6 +187,7 @@ public:
     void visit(IndexAccess* /*node*/) override { out_ << "{\"type\": \"IndexAccess\"}"; }
     void visit(IndexAssign* /*node*/) override { out_ << "{\"type\": \"IndexAssign\"}"; }
     void visit(Stop* /*node*/) override { out_ << "{\"type\": \"Stop\"}"; }
+    void visit(Pass* /*node*/) override { out_ << "{\"type\": \"Pass\"}"; }
     void visit(Skip* /*node*/) override { out_ << "{\"type\": \"Skip\"}"; }
     void visit(Throw* /*node*/) override { out_ << "{\"type\": \"Throw\"}"; }
     void visit(PythonImport* /*node*/) override { out_ << "{\"type\": \"PythonImport\"}"; }

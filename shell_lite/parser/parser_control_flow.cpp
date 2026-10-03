@@ -313,5 +313,10 @@ Node *Parser::bind_del(int index) {
   set_node_loc(n, index);
   return n;
 }
+Node *Parser::bind_pass(int index) {
+  Pass *n = arena_.emplace<Pass>();
+  set_node_loc(n, index);
+  return n;
+}
 
 } // namespace shell_lite
