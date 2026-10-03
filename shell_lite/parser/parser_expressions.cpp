@@ -664,6 +664,25 @@ Node *Parser::SubParser::parse_primary() {
     return call;
   }
 
+  if (match({TokenType::TOK_ANY, TokenType::TOK_ALL})) {
+    Call *call = arena_.emplace<Call>(
+        previous().type == TokenType::TOK_ALL ? "all" : "any");
+    if (match(TokenType::TOK_LPAREN)) {
+      if (!check(TokenType::TOK_RPAREN)) {
+        do {
+          call->args.push_back(parse_expression());
+        } while (match(TokenType::TOK_COMMA));
+      }
+      consume(TokenType::TOK_RPAREN, "Expected ')'");
+    } else {
+      if (!is_at_end() && (peek().value == "items" || peek().value == "item"))
+        advance();
+      match(TokenType::TOK_IN);
+      call->args.push_back(parse_expression());
+    }
+    return call;
+  }
+
   if (match(TokenType::TOK_RANGE)) {
     Call *call = arena_.emplace<Call>("range");
     if (match(TokenType::TOK_LPAREN)) {

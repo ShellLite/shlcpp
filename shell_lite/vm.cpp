@@ -57,6 +57,10 @@ public:
   }
 };
 
+Value VM::make_bound_method(ObjInstance *inst, ObjClosure *method) {
+  return Value(arena_.allocate<BoundMethod>(inst, method));
+}
+
 static std::string get_executable_directory() {
   return pal::get_executable_path();
 }

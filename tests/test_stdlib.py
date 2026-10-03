@@ -225,5 +225,162 @@ say caught
         self.assertIn("standard library tests passed!", output)
 
 
+
+    def test_deepcopy(self):
+        code = "\n".join([
+            "a = [1, [2, 3], {\"k\": [4]}]",
+            "b = deepcopy(a)",
+            "b[1][0] = 99",
+            "b[2][\"k\"][0] = 100",
+            "say a[1][0]",
+            "say b[1][0]",
+            "say a[2][\"k\"][0]",
+            "say b[2][\"k\"][0]",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["2", "99", "4", "100"])
+
+    def test_deepcopy_cycle(self):
+        code = "\n".join([
+            "a = [1, 2]",
+            "push(a, a)",
+            "b = deepcopy(a)",
+            "say len(b)",
+            "say b[0]",
+            "say b[2][0]",
+            "b[0] = 99",
+            "say a[0]",
+            "say b[2] == b",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["3", "1", "1", "1", "true"])
+
+    def test_deepcopy_instance(self):
+        code = "\n".join([
+            "structure Pt",
+            "    has x",
+            "    has items",
+            "p = new Pt(5, [1, 2])",
+            "q = deepcopy(p)",
+            "push(q.items, 3)",
+            "say q.x",
+            "say len(p.items)",
+            "say len(q.items)",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["5", "2", "3"])
+
+    def test_reflection(self):
+        code = "\n".join([
+            "structure Dog",
+            "    has name",
+            "    to speak()",
+            '        give "woof " + self.name',
+            'd = new Dog("rex")',
+            'say getattr(d, "name")',
+            'setattr(d, "name", "max")',
+            "say d.name",
+            'say hasattr(d, "name")',
+            'say hasattr(d, "speak")',
+            'say hasattr(d, "nope")',
+            "say dir(d)",
+            "f = getattr(d, \"speak\")",
+            "say f()",
+            "say repr(d)",
+            "say repr(42)",
+            "say repr([1, 2])",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, [
+            "rex", "max", "true", "true", "false",
+            '["init", "name", "speak"]', "woof max",
+            "<instance Dog>", "42", "[1, 2]",
+        ])
+
+    def test_reflection_errors(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code('structure D\n    has x\nd = new D(1)\nsay getattr(d, "missing")')
+        self.assertIn("not found", str(ctx.exception))
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code('say getattr([1], "x")')
+        self.assertIn("instance", str(ctx.exception))
+
+    def test_id(self):
+        code = "\n".join([
+            "a = [1]",
+            "b = [1]",
+            "say id(a) == id(b)",
+            "say id(a) == id(a)",
+            "say id(a) != 0",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["false", "true", "true"])
+
+    def test_iteration_vocab(self):
+        code = "\n".join([
+            'say zip([1, 2, 3], ["a", "b"])',
+            'say enumerate(["x", "y"])',
+            "say reversed([1, 2, 3])",
+            "a = [1, 2]",
+            "b = reversed(a)",
+            "say a",
+            "say any([false, 0, \"\"])",
+            "say any([false, 1])",
+            'say all([1, "x", true])',
+            'say all([1, ""])',
+            "say any([])",
+            "say all([])",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, [
+            '[[1, "a"], [2, "b"]]',
+            '[[0, "x"], [1, "y"]]',
+            "[3, 2, 1]",
+            "[1, 2]",
+            "false", "true", "true", "false", "false", "true",
+        ])
+
+    def test_hex_bin(self):
+        code = "\n".join([
+            "say hex(255)",
+            "say hex(-255)",
+            "say hex(0)",
+            "say bin(5)",
+            "say bin(-5)",
+            "say bin(0)",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["0xff", "-0xff", "0x0", "0b101", "-0b101", "0b0"])
+
+    def test_hex_bin_reject_non_integer_float(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code("say hex(10.7)\n")
+        self.assertIn("hex() requires a finite integer-valued number", str(ctx.exception))
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code("say bin(10.7)\n")
+        self.assertIn("bin() requires a finite integer-valued number", str(ctx.exception))
+
+    def test_zip_zero_args_returns_empty(self):
+        self.assertEqual(run_shl_code("say zip()\n").strip(), "[]")
+
+    def test_zip_basic(self):
+        code = "say zip([1, 2], [3, 4])\n"
+        self.assertEqual(run_shl_code(code).strip(), "[[1, 3], [2, 4]]")
+
+    def test_divmod(self):
+        code = "\n".join([
+            "say divmod(7, 2)",
+            "say divmod(-7, 2)",
+            "say divmod(7, -2)",
+            "say divmod(7.5, 2)",
+        ])
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["[3, 1]", "[-4, 1]", "[-4, -1]", "[3, 1.5]"])
+
+    def test_divmod_zero(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code("say divmod(1, 0)")
+        self.assertIn("Division by zero", str(ctx.exception))
+
 if __name__ == "__main__":
     unittest.main()

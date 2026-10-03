@@ -8,10 +8,21 @@
 #include <sstream>
 #include <cmath>
 #include <functional>
+#include <unordered_map>
+#include <cstdint>
+#include <cstdio>
+#include <algorithm>
+#include <vector>
 
 #include "pal/platform.hpp"
 
 namespace shell_lite {
+
+static Value builtin_error(VM *vm, const std::string &msg) {
+  vm->has_error = true;
+  vm->error_value = Value(vm->arena().allocate_string(msg));
+  return Value();
+}
 
 void register_stdlib_core(VM *vm) {
   // load native shared library and wire up plugin c-api
@@ -1272,6 +1283,225 @@ void register_stdlib_core(VM *vm) {
     }
     return Value(res);
   });
+
+  NativeRegistry::register_builtin(
+      vm, "deepcopy", 1, [](VM *vm, int arg_count) -> Value {
+        std::unordered_map<GCObject *, GCObject *> clones;
+        return vm->peek(0).clone_val(vm->arena(), clones);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "getattr", 2, [](VM *vm, int arg_count) -> Value {
+        Value obj = vm->peek(1);
+        Value name_val = vm->peek(0);
+        if (!obj.is_instance())
+          return builtin_error(vm, "getattr() first argument must be an instance");
+        if (!name_val.is_string())
+          return builtin_error(vm, "getattr() attribute name must be a string");
+        auto *inst = static_cast<ObjInstance *>(obj.get_obj());
+        std::string name = name_val.as_string();
+        auto fit = inst->fields.find(name);
+        if (fit != inst->fields.end())
+          return fit->second;
+        auto mit = inst->klass->methods.find(name);
+        if (mit != inst->klass->methods.end())
+          return vm->make_bound_method(inst, mit->second);
+        return builtin_error(vm, "attribute '" + name + "' not found");
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "setattr", 3, [](VM *vm, int arg_count) -> Value {
+        Value obj = vm->peek(2);
+        Value name_val = vm->peek(1);
+        Value val = vm->peek(0);
+        if (!obj.is_instance())
+          return builtin_error(vm, "setattr() first argument must be an instance");
+        if (!name_val.is_string())
+          return builtin_error(vm, "setattr() attribute name must be a string");
+        static_cast<ObjInstance *>(obj.get_obj())->fields[name_val.as_string()] = val;
+        return Value();
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "hasattr", 2, [](VM *vm, int arg_count) -> Value {
+        Value obj = vm->peek(1);
+        Value name_val = vm->peek(0);
+        if (!name_val.is_string())
+          return builtin_error(vm, "hasattr() attribute name must be a string");
+        if (!obj.is_instance())
+          return Value(false);
+        auto *inst = static_cast<ObjInstance *>(obj.get_obj());
+        std::string name = name_val.as_string();
+        if (inst->fields.find(name) != inst->fields.end())
+          return Value(true);
+        return Value(inst->klass->methods.find(name) != inst->klass->methods.end());
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "dir", 1, [](VM *vm, int arg_count) -> Value {
+        Value obj = vm->peek(0);
+        auto *res = vm->arena().allocate<ObjList>();
+        if (obj.is_instance()) {
+          auto *inst = static_cast<ObjInstance *>(obj.get_obj());
+          std::vector<std::string> names;
+          for (auto &p : inst->fields)
+            names.push_back(p.first);
+          for (auto &p : inst->klass->methods)
+            names.push_back(p.first);
+          std::sort(names.begin(), names.end());
+          names.erase(std::unique(names.begin(), names.end()), names.end());
+          for (auto &n : names)
+            res->elements.push_back(Value(vm->arena().allocate_string(n)));
+        }
+        return Value(res);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "id", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_obj() || !v.get_obj())
+          return builtin_error(vm, "id() requires an object");
+        return Value((double)(uintptr_t)v.get_obj());
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "repr", 1, [](VM *vm, int arg_count) -> Value {
+        return Value(vm->arena().allocate_string(vm->peek(0).to_string()));
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "zip", -1, [](VM *vm, int arg_count) -> Value {
+        for (int i = 0; i < arg_count; ++i)
+          if (!vm->peek(i).is_list())
+            return builtin_error(vm, "zip() arguments must be lists");
+        auto *res = vm->arena().allocate<ObjList>();
+        if (arg_count == 0)
+          return Value(res);
+        size_t n = static_cast<size_t>(-1);
+        for (int i = 0; i < arg_count; ++i)
+          n = (std::min)(n, static_cast<ObjList *>(vm->peek(i).get_obj())->elements.size());
+        for (size_t k = 0; k < n; ++k) {
+          auto *row = vm->arena().allocate<ObjList>();
+          for (int i = arg_count - 1; i >= 0; --i)
+            row->elements.push_back(
+                static_cast<ObjList *>(vm->peek(i).get_obj())->elements[k]);
+          res->elements.push_back(Value(row));
+        }
+        return Value(res);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "enumerate", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_list())
+          return builtin_error(vm, "enumerate() argument must be a list");
+        auto *res = vm->arena().allocate<ObjList>();
+        auto &elems = static_cast<ObjList *>(v.get_obj())->elements;
+        for (size_t i = 0; i < elems.size(); ++i) {
+          auto *pair = vm->arena().allocate<ObjList>();
+          pair->elements.push_back(Value((double)i));
+          pair->elements.push_back(elems[i]);
+          res->elements.push_back(Value(pair));
+        }
+        return Value(res);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "reversed", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_list())
+          return builtin_error(vm, "reversed() argument must be a list");
+        auto *res = vm->arena().allocate<ObjList>();
+        auto &elems = static_cast<ObjList *>(v.get_obj())->elements;
+        for (auto it = elems.rbegin(); it != elems.rend(); ++it)
+          res->elements.push_back(*it);
+        return Value(res);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "any", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_list())
+          return builtin_error(vm, "any() argument must be a list");
+        for (auto &e : static_cast<ObjList *>(v.get_obj())->elements)
+          if (e.as_bool())
+            return Value(true);
+        return Value(false);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "all", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_list())
+          return builtin_error(vm, "all() argument must be a list");
+        for (auto &e : static_cast<ObjList *>(v.get_obj())->elements)
+          if (!e.as_bool())
+            return Value(false);
+        return Value(true);
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "hex", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_number())
+          return builtin_error(vm, "hex() requires a number");
+        double d = v.as_number();
+        if (!std::isfinite(d) || std::floor(d) != d ||
+            d >= 9.007199254740992e15 || d <= -9.007199254740992e15)
+          return builtin_error(vm, "hex() requires a finite integer-valued number");
+        long long n = (long long)d;
+        char buf[32];
+        if (n < 0)
+          snprintf(buf, sizeof(buf), "-0x%llx",
+                   (unsigned long long)(-(n + 1)) + 1);
+        else
+          snprintf(buf, sizeof(buf), "0x%llx", (unsigned long long)n);
+        return Value(vm->arena().allocate_string(buf));
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "bin", 1, [](VM *vm, int arg_count) -> Value {
+        Value v = vm->peek(0);
+        if (!v.is_number())
+          return builtin_error(vm, "bin() requires a number");
+        double d = v.as_number();
+        if (!std::isfinite(d) || std::floor(d) != d ||
+            d >= 9.007199254740992e15 || d <= -9.007199254740992e15)
+          return builtin_error(vm, "bin() requires a finite integer-valued number");
+        long long n = (long long)d;
+        unsigned long long u =
+            n < 0 ? (unsigned long long)(-(n + 1)) + 1 : (unsigned long long)n;
+        std::string s = n < 0 ? "-0b" : "0b";
+        if (u == 0) {
+          s += "0";
+        } else {
+          std::string bits;
+          while (u) {
+            bits.push_back((u & 1) ? '1' : '0');
+            u >>= 1;
+          }
+          std::reverse(bits.begin(), bits.end());
+          s += bits;
+        }
+        return Value(vm->arena().allocate_string(s));
+      });
+
+  NativeRegistry::register_builtin(
+      vm, "divmod", 2, [](VM *vm, int arg_count) -> Value {
+        Value av = vm->peek(1);
+        Value bv = vm->peek(0);
+        if (!av.is_number() || !bv.is_number())
+          return builtin_error(vm, "divmod() requires numbers");
+        double a = av.as_number();
+        double b = bv.as_number();
+        if (b == 0)
+          return builtin_error(vm, "Division by zero");
+        double q = std::floor(a / b);
+        auto *res = vm->arena().allocate<ObjList>();
+        res->elements.push_back(Value(q));
+        res->elements.push_back(Value(a - q * b));
+        return Value(res);
+      });
 }
 
 } // namespace shell_lite

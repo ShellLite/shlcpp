@@ -63,6 +63,7 @@ public:
     void run_loop();
 
     GCArena& arena() { return arena_; }
+    Value make_bound_method(ObjInstance *inst, ObjClosure *method);
 
     std::shared_ptr<GlobalsTable> globals;
     std::unordered_map<std::string, ObjModule*> module_cache;
