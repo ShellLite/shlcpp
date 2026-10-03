@@ -128,7 +128,7 @@ struct Chunk {
   Chunk *clone(GCArena &target,
                std::unordered_map<GCObject *, GCObject *> &clones);
   void serialize(std::ostream& out) const;
-  static Chunk* deserialize(std::istream& in, GCArena& arena);
+  static Chunk* deserialize(std::istream& in, GCArena& arena, int depth = 0);
   bool verify() const;
 };
 

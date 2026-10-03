@@ -3,6 +3,7 @@
 #include "objects.hpp"
 #include "vm.hpp"
 #include <iostream>
+#include <memory>
 namespace shell_lite {
 
 int Chunk::add_constant(Value value) {
@@ -75,31 +76,31 @@ void Chunk::serialize(std::ostream& out) const {
     }
 }
 
-Chunk* Chunk::deserialize(std::istream& in, GCArena& arena) {
-    auto* c = new Chunk();
+Chunk* Chunk::deserialize(std::istream& in, GCArena& arena, int depth) {
+    auto c = std::make_unique<Chunk>();
+    if (depth > 1000) {
+        throw std::runtime_error("Function nesting too deep in bytecode");
+    }
     uint32_t magic = 0;
     read_bin(in, magic);
     if (!in || magic != 0x43424853) {
-        delete c;
         throw std::runtime_error("Invalid SHBC bytecode: missing magic header");
     }
     uint32_t version = 0;
     read_bin(in, version);
     if (!in || version > 0x00010000) {
-        delete c;
         throw std::runtime_error("Unsupported SHBC bytecode version");
     }
 
     uint32_t const_count = 0;
     read_bin(in, const_count);
     if (!in || const_count > 1000000) {
-        delete c;
         throw std::runtime_error("Invalid constant count in bytecode");
     }
     for (uint32_t i = 0; i < const_count; ++i) {
         uint8_t tag = 0;
         read_bin(in, tag);
-        if (!in) { delete c; throw std::runtime_error("Unexpected EOF in bytecode constants"); }
+        if (!in) { throw std::runtime_error("Unexpected EOF in bytecode constants"); }
         if (tag == 0x00) {
             c->constants.push_back(Value());
         } else if (tag == 0x01) {
@@ -110,15 +111,14 @@ Chunk* Chunk::deserialize(std::istream& in, GCArena& arena) {
             c->constants.push_back(Value(d));
         } else if (tag == 0x03) {
             uint32_t len = 0; read_bin(in, len);
-            if (!in || len > 10000000) { delete c; throw std::runtime_error("Invalid string length in bytecode"); }
+            if (!in || len > 10000000) { throw std::runtime_error("Invalid string length in bytecode"); }
             std::string s(len, '\0');
             in.read(&s[0], len);
-            if (!in) { delete c; throw std::runtime_error("Unexpected EOF reading string constant"); }
+            if (!in) { throw std::runtime_error("Unexpected EOF reading string constant"); }
             c->constants.push_back(Value(arena.allocate_string(s)));
         } else if (tag == 0x04) {
-            c->constants.push_back(Value(ObjFunction::deserialize(in, arena)));
+            c->constants.push_back(Value(ObjFunction::deserialize(in, arena, depth + 1)));
         } else {
-            delete c;
             throw std::runtime_error("Invalid constant type tag in SHBC");
         }
     }
@@ -126,19 +126,17 @@ Chunk* Chunk::deserialize(std::istream& in, GCArena& arena) {
     uint32_t code_size = 0;
     read_bin(in, code_size);
     if (!in || code_size > 10000000) {
-        delete c;
         throw std::runtime_error("Invalid code size in bytecode");
     }
     c->code.resize(code_size);
     if (code_size > 0) {
         in.read(reinterpret_cast<char*>(c->code.data()), code_size);
-        if (!in) { delete c; throw std::runtime_error("Unexpected EOF reading bytecode"); }
+        if (!in) { throw std::runtime_error("Unexpected EOF reading bytecode"); }
     }
 
     uint32_t loc_count = 0;
     read_bin(in, loc_count);
     if (!in || loc_count > 1000000) {
-        delete c;
         throw std::runtime_error("Invalid location count in bytecode");
     }
     for (uint32_t i = 0; i < loc_count; ++i) {
@@ -148,10 +146,9 @@ Chunk* Chunk::deserialize(std::istream& in, GCArena& arena) {
     }
 
     if (!c->verify()) {
-        delete c;
         throw std::runtime_error("Bytecode verification failed for chunk");
     }
-    return c;
+    return c.release();
 }
 
 bool Chunk::verify() const {

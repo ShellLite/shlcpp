@@ -105,7 +105,10 @@ void ObjFunction::serialize(std::ostream& out) const {
 }
 
 // read .shbc bytecode and rebuild func in arena
-ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena) {
+ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena, int depth) {
+    if (depth > 1000) {
+        throw std::runtime_error("Function nesting too deep in bytecode");
+    }
     uint32_t magic = 0;
     in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
     if (!in || magic != 0x43424853) {
@@ -151,7 +154,7 @@ ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena) {
         for (uint32_t i = 0; i < dc; ++i) f->default_args.push_back(deserialize_value(in, arena));
     }
 
-    f->chunk = std::unique_ptr<Chunk>(Chunk::deserialize(in, arena));
+    f->chunk = std::unique_ptr<Chunk>(Chunk::deserialize(in, arena, depth + 1));
     return f;
 }
 

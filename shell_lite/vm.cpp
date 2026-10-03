@@ -1982,10 +1982,23 @@ Value VM::run(int target_frame_depth) {
       for (int i = 0; i < func->upvalue_count; i++) {
         uint8_t is_local = read_byte();
         uint16_t index = read_short();
-        if (is_local)
+        if (is_local) {
+          ptrdiff_t window = (stack_top - 1) - frames.back().slots;
+          if ((ptrdiff_t)index >= window) {
+            has_error = true;
+            error_value = Value(arena_.allocate_string("Upvalue index out of range"));
+            break;
+          }
           closure->upvalues[i] = capture_upvalue(frames.back().slots + index);
-        else
-          closure->upvalues[i] = frames.back().closure->upvalues[index];
+        } else {
+          auto *enclosing = frames.back().closure;
+          if (!enclosing || index >= enclosing->upvalues.size()) {
+            has_error = true;
+            error_value = Value(arena_.allocate_string("Upvalue index out of range"));
+            break;
+          }
+          closure->upvalues[i] = enclosing->upvalues[index];
+        }
       }
       break;
     }

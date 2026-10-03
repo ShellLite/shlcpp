@@ -2,6 +2,7 @@
 #include <fstream>
 #include <filesystem>
 #include <stdexcept>
+#include <cmath>
 
 namespace shell_lite {
 
@@ -29,11 +30,25 @@ void register_stdlib_io(VM* vm) {
         if (!file_obj->is_open) return Value();
 
         if (arg_count > 1) {
-            size_t size = (size_t)vm->peek(arg_count - 2).as_number();
-            std::string buffer(size, '\0');
-            file_obj->stream.read(&buffer[0], size);
-            std::streamsize bytes_read = file_obj->stream.gcount();
-            buffer.resize(bytes_read);
+            Value v_size = vm->peek(arg_count - 2);
+            double n = v_size.is_number() ? v_size.as_number() : -1;
+            if (std::isnan(n) || std::isinf(n) || n < 0) {
+                vm->has_error = true;
+                vm->error_value = Value(vm->arena().allocate_string("file_read: size must be a non-negative number"));
+                return Value();
+            }
+            size_t size = (size_t)n;
+            std::string buffer;
+            char chunk[65536];
+            size_t remaining = size;
+            while (remaining > 0 && file_obj->stream) {
+                size_t want = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+                file_obj->stream.read(chunk, want);
+                size_t got = (size_t)file_obj->stream.gcount();
+                buffer.append(chunk, got);
+                if (got < want) break;
+                remaining -= got;
+            }
             return Value(vm->arena().allocate_string(buffer));
         } else {
             std::string content((std::istreambuf_iterator<char>(file_obj->stream)),

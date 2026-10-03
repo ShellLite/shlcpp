@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 build_cpp/
+build_asan/
 package/
 dist/
 bin/

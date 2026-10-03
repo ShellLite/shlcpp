@@ -8,6 +8,8 @@
 #include <sstream>
 #include <cmath>
 #include <functional>
+#include <set>
+#include <unordered_set>
 #include <unordered_map>
 #include <cstdint>
 #include <cstdio>
@@ -881,7 +883,27 @@ void register_stdlib_core(VM *vm) {
     Value v = vm->peek(arg_count - 1);
     int indent_size = (arg_count >= 2) ? (int)vm->peek(arg_count - 2).as_number() : 0;
 
+    std::unordered_set<const void*> seen;
+    auto json_escape = [](const std::string& s) -> std::string {
+      std::string res = "\"";
+      for (char c : s) {
+        switch (c) {
+          case '"': res += "\\\""; break;
+          case '\\': res += "\\\\"; break;
+          case '\b': res += "\\b"; break;
+          case '\f': res += "\\f"; break;
+          case '\n': res += "\\n"; break;
+          case '\r': res += "\\r"; break;
+          case '\t': res += "\\t"; break;
+          default: res += c; break;
+        }
+      }
+      res += "\"";
+      return res;
+    };
     std::function<std::string(Value, int)> stringify = [&](Value val, int depth) -> std::string {
+      if (depth > 1000)
+        throw std::runtime_error("json_stringify: nesting too deep");
       if (val.is_null()) return "null";
       if (val.is_bool()) return val.as_bool() ? "true" : "false";
       if (val.is_number()) {
@@ -893,80 +915,75 @@ void register_stdlib_core(VM *vm) {
         ss << num;
         return ss.str();
       }
-      if (val.is_string()) {
-        std::string s = val.as_string();
-        std::string res = "\"";
-        for (char c : s) {
-          switch (c) {
-            case '"': res += "\\\""; break;
-            case '\\': res += "\\\\"; break;
-            case '\b': res += "\\b"; break;
-            case '\f': res += "\\f"; break;
-            case '\n': res += "\\n"; break;
-            case '\r': res += "\\r"; break;
-            case '\t': res += "\\t"; break;
-            default: res += c; break;
-          }
-        }
-        res += "\"";
-        return res;
-      }
+      if (val.is_string()) return json_escape(val.as_string());
       if (val.is_list()) {
         auto *list = static_cast<ObjList*>(val.get_obj());
-        if (list->elements.empty()) return "[]";
-        if (indent_size > 0) {
+        if (!seen.insert(list).second)
+          throw std::runtime_error("json_stringify: cyclic structure");
+        std::string res;
+        if (list->elements.empty()) res = "[]";
+        else if (indent_size > 0) {
           std::string indent_str(depth * indent_size, ' ');
           std::string inner_indent((depth + 1) * indent_size, ' ');
-          std::string res = "[\n";
+          res = "[\n";
           for (size_t i = 0; i < list->elements.size(); ++i) {
             if (i > 0) res += ",\n";
             res += inner_indent + stringify(list->elements[i], depth + 1);
           }
           res += "\n" + indent_str + "]";
-          return res;
         } else {
-          std::string res = "[";
+          res = "[";
           for (size_t i = 0; i < list->elements.size(); ++i) {
             if (i > 0) res += ", ";
-            res += stringify(list->elements[i], 0);
+            res += stringify(list->elements[i], depth + 1);
           }
           res += "]";
-          return res;
         }
+        seen.erase(list);
+        return res;
       }
       if (val.is_dict()) {
         auto *dict = static_cast<ObjDict*>(val.get_obj());
-        if (dict->elements.empty()) return "{}";
-        if (indent_size > 0) {
+        if (!seen.insert(dict).second)
+          throw std::runtime_error("json_stringify: cyclic structure");
+        std::string res;
+        if (dict->elements.empty()) res = "{}";
+        else if (indent_size > 0) {
           std::string indent_str(depth * indent_size, ' ');
           std::string inner_indent((depth + 1) * indent_size, ' ');
-          std::string res = "{\n";
+          res = "{\n";
           bool first = true;
           for (auto &pair : dict->elements) {
             if (!first) res += ",\n";
             first = false;
-            res += inner_indent + stringify(Value(vm->arena().allocate_string(pair.first)), 0);
+            res += inner_indent + json_escape(pair.first);
             res += ": " + stringify(pair.second, depth + 1);
           }
           res += "\n" + indent_str + "}";
-          return res;
         } else {
-          std::string res = "{";
+          res = "{";
           bool first = true;
           for (auto &pair : dict->elements) {
             if (!first) res += ", ";
             first = false;
-            res += stringify(Value(vm->arena().allocate_string(pair.first)), 0);
+            res += json_escape(pair.first);
             res += ": ";
-            res += stringify(pair.second, 0);
+            res += stringify(pair.second, depth + 1);
           }
           res += "}";
-          return res;
         }
+        seen.erase(dict);
+        return res;
       }
       return "\"" + val.to_string() + "\"";
     };
-    return Value(vm->arena().allocate_string(stringify(v, 0)));
+    try {
+      return Value(vm->arena().allocate_string(stringify(v, 0)));
+    } catch (const std::exception& e) {
+      vm->has_error = true;
+      vm->error_value = Value(vm->arena().allocate_string(e.what()));
+      return Value();
+    }
   };
 
   NativeRegistry::register_builtin(vm, "json_stringify", -1, json_stringify_fn);
@@ -1020,9 +1037,10 @@ void register_stdlib_core(VM *vm) {
       return out;
     };
 
-    std::function<Value()> parse_val = [&]() -> Value {
+    std::function<Value(int)> parse_val = [&](int depth) -> Value {
       skip_ws();
       if (pos >= s.size()) { error_out = true; return Value(); }
+      if (depth > 1000) { error_out = true; return Value(); }
       char c = s[pos];
       if (c == 'n' && s.substr(pos, 4) == "null") {
         pos += 4;
@@ -1046,7 +1064,8 @@ void register_stdlib_core(VM *vm) {
         skip_ws();
         if (match_c(']')) return Value(list);
         while (true) {
-          Value elem = parse_val();
+          Value elem = parse_val(depth + 1);
+          if (error_out) break;
           list->elements.push_back(elem);
           skip_ws();
           if (match_c(']')) break;
@@ -1065,7 +1084,8 @@ void register_stdlib_core(VM *vm) {
           std::string key = parse_str();
           skip_ws();
           if (!match_c(':')) { error_out = true; break; }
-          Value v = parse_val();
+          Value v = parse_val(depth + 1);
+          if (error_out) break;
           dict->elements[key] = v;
           skip_ws();
           if (match_c('}')) break;
@@ -1098,7 +1118,7 @@ void register_stdlib_core(VM *vm) {
       return Value();
     };
 
-    Value result = parse_val();
+    Value result = parse_val(0);
     skip_ws();
     if (pos < s.size()) error_out = true;
     return result;

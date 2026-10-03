@@ -188,7 +188,7 @@ struct ObjFunction : public Callable {
   GCObject *clone(GCArena &target,
                   std::unordered_map<GCObject *, GCObject *> &clones) override;
   void serialize(std::ostream& out) const;
-  static ObjFunction* deserialize(std::istream& in, GCArena& arena);
+  static ObjFunction* deserialize(std::istream& in, GCArena& arena, int depth = 0);
 };
 
 // captured local variable on stack or copied to heap

@@ -90,9 +90,11 @@ jobs:
             with open(f, encoding="utf-8") as fh:
                 src = fh.read()
             once = subprocess.run([exe, "fmt", "--stdin"], input=src,
-                                  capture_output=True, text=True).stdout
+                                  capture_output=True, text=True,
+                                  encoding="utf-8").stdout
             twice = subprocess.run([exe, "fmt", "--stdin"], input=once,
-                                   capture_output=True, text=True).stdout
+                                   capture_output=True, text=True,
+                                   encoding="utf-8").stdout
             if once != twice:
                 print(f"NOT IDEMPOTENT: {f}")
                 bad += 1

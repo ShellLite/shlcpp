@@ -455,8 +455,6 @@ int Formatter::expr_end(Node *node) {
   return e;
 }
 
-// last line of a statement by matching brackets in the source
-// ast nodes dont cover closers sitting on their own line
 int Formatter::bracket_end(int from_line, int bound_line) const {
   if (from_line < 1 || (size_t)from_line > line_offsets_.size())
     return from_line;
@@ -490,8 +488,6 @@ int Formatter::bracket_end(int from_line, int bound_line) const {
     if (depth == 0 && has_code)
       candidate = line;
     has_code = false;
-    // a depth zero line followed by same or lower indent ends the statement
-    // continuations are deeper indented or sit inside brackets
     if (depth == 0 && line + 1 < last && line_indent(line + 1) <= base_indent)
       stop = true;
   };

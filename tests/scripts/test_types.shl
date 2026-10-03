@@ -1,5 +1,5 @@
 to test_unicode_and_strings
-    s = "🚀 ShellLite 语言"
+    s = "🙂 ShellLite 语言"
     assert(s.len() > 0, "Unicode string length failed")
     
     alphabet = "ABCDE"

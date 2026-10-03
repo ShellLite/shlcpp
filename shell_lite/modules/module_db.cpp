@@ -120,7 +120,16 @@ void register_stdlib_db(VM* vm) {
             vm->error_value = Value(vm->arena().allocate_string("Database not open. Call db_open() or connect_database() first."));
             return Value();
         }
-        std::string query = vm->peek(arg_count - 1).to_string();
+        int query_peek = -1;
+        for (int i = arg_count - 1; i >= 0; --i) {
+            if (!vm->peek(i).is_database()) { query_peek = i; break; }
+        }
+        if (query_peek < 0) {
+            vm->has_error = true;
+            vm->error_value = Value(vm->arena().allocate_string("db_query expects a query string"));
+            return Value();
+        }
+        std::string query = vm->peek(query_peek).to_string();
 
         sqlite3_stmt* stmt = nullptr;
         if (sqlite3_prepare_v2(conn, query.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -129,13 +138,17 @@ void register_stdlib_db(VM* vm) {
             return Value();
         }
 
-        for (int i = 0; i < arg_count - 1; ++i) {
-            Value v = vm->peek(arg_count - 2 - i);
+        int bind_idx = 1;
+        int query_arg = arg_count - 1 - query_peek;
+        for (int j = 0; j < arg_count; ++j) {
+            if (j == query_arg) continue;
+            Value v = vm->peek(arg_count - 1 - j);
             if (v.is_database()) continue;
-            if (v.is_null()) sqlite3_bind_null(stmt, i + 1);
-            else if (v.is_number()) sqlite3_bind_double(stmt, i + 1, v.as_number());
-            else if (v.is_bool()) sqlite3_bind_int(stmt, i + 1, v.as_bool() ? 1 : 0);
-            else sqlite3_bind_text(stmt, i + 1, v.to_string().c_str(), -1, SQLITE_TRANSIENT);
+            if (v.is_null()) sqlite3_bind_null(stmt, bind_idx);
+            else if (v.is_number()) sqlite3_bind_double(stmt, bind_idx, v.as_number());
+            else if (v.is_bool()) sqlite3_bind_int(stmt, bind_idx, v.as_bool() ? 1 : 0);
+            else sqlite3_bind_text(stmt, bind_idx, v.to_string().c_str(), -1, SQLITE_TRANSIENT);
+            ++bind_idx;
         }
 
         auto result_list = vm->arena().allocate<ObjList>();
