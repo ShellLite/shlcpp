@@ -313,6 +313,58 @@ say not b"""
         out = run_shl_code(code).strip().splitlines()
         self.assertEqual(out, ["false", "true", "true"])
 
+    def test_always_nested_fn_return(self):
+        code = """to outer()
+    try
+        say "outer try"
+    always
+        to inner()
+            try
+                say "inner try"
+            always
+                say "inner cleanup"
+            return 7
+        r = inner()
+        say r
+        say "outer cleanup"
+outer()"""
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["outer try", "inner try", "inner cleanup", "7", "outer cleanup"])
+
+    def test_always_nested_fn_no_return(self):
+        code = """to outer()
+    try
+        say "outer try"
+    always
+        to inner()
+            try
+                say "inner try"
+            always
+                say "inner cleanup"
+        inner()
+        say "outer cleanup"
+outer()"""
+        out = run_shl_code(code).strip().splitlines()
+        self.assertEqual(out, ["outer try", "inner try", "inner cleanup", "outer cleanup"])
+
+    def test_repeat_skip(self):
+        code = """count = 0
+repeat 5 times
+    count = count + 1
+    if count == 2
+        skip
+say count"""
+        self.assertEqual(run_shl_code(code).strip(), "5")
+
+    def test_repeat_skip_nested(self):
+        code = """total = 0
+repeat 2 times
+    repeat 3 times
+        skip
+        total = total + 1
+say total"""
+        self.assertEqual(run_shl_code(code).strip(), "0")
+
 
 if __name__ == "__main__":
     unittest.main()
