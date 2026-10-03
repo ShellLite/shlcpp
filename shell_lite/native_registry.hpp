@@ -132,7 +132,6 @@ inline Value make_value(VM *vm, const char *v) {
 inline Value make_value(VM *vm, Value v) { return v; }
 inline Value make_value(VM *vm, GCObject *v) { return Value(v); }
 
-// --- Function Traits ---
 template <typename T>
 struct function_traits : public function_traits<decltype(&T::operator())> {};
 

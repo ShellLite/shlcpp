@@ -1,6 +1,4 @@
-# ShellLite Standard Database Library
-# Provides natural language database operations.
-# Usage: use "shell_lite/stdlib/db.shl"
+# database helpers
 
 to connect_database path
     give std_db_open(path)

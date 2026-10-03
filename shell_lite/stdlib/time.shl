@@ -1,5 +1,4 @@
-# ShellLite Standard Time & Date Library
-# Provides time measuring, formatting, and sleeping utilities.
+# time helpers
 
 to get_timestamp
     give std_time_now()

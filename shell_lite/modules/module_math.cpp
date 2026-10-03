@@ -5,7 +5,7 @@
 #include <random>
 
 namespace shell_lite {
-// Declarative stdlib math registrations
+// stdlib math registrations
 
 static std::mt19937 &get_math_rng() {
   static thread_local std::mt19937 rng(std::random_device{}());
@@ -81,7 +81,8 @@ void register_stdlib_math(VM *vm) {
   NativeRegistry::bind(vm, "exp", math_exp_fn);
   NativeRegistry::bind(vm, "pow", math_pow_fn);
 
-  // Mathematical Constants
+  // math consts, i do wonder if i should just go till 3 digits after decimal or keep this
+  // I mean it does feel a little weird to take like 20 digits a bit overkill but meh
   vm->globals->values["PI"] = Value(3.14159265358979323846);
   vm->globals->values["E"] = Value(2.71828182845904523536);
   vm->globals->values["TAU"] = Value(6.28318530717958647692);

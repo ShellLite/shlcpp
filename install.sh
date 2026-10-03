@@ -5,13 +5,13 @@ echo "====================================="
 echo "   ShellLite Native Build Script     "
 echo "====================================="
 
-# Check for cmake
+# check for cmake
 if ! command -v cmake &> /dev/null; then
     echo "Error: cmake could not be found. Please install cmake (e.g., 'sudo apt install cmake' or 'brew install cmake')."
     exit 1
 fi
 
-# Check for a C++ compiler
+# check for a c++ compiler
 if ! command -v g++ &> /dev/null && ! command -v clang++ &> /dev/null; then
     echo "Error: No C++ compiler found. Please install g++ or clang++."
     exit 1

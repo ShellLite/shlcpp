@@ -6,6 +6,6 @@
 #define SHLCPP_VERSION_PATCH 0
 #define SHLCPP_BUILD_NAME "shlcpp"
 
-// Aliases for compatibility
+// compat aliases
 #define SHELL_LITE_VERSION SHLCPP_VERSION
 #define SHELL_LITE_BUILD_NAME SHLCPP_BUILD_NAME

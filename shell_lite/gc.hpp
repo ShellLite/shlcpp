@@ -39,7 +39,7 @@ struct ObjString;
 
 class GCArena {
 public:
-    static constexpr size_t DEFAULT_INITIAL_GC_THRESHOLD = 1024 * 1024; // 1MB default initial GC threshold
+    static constexpr size_t DEFAULT_INITIAL_GC_THRESHOLD = 1024 * 1024;
     static constexpr size_t GC_GROWTH_FACTOR = 2;
 
     static size_t get_initial_gc_threshold();

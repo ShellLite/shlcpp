@@ -1,4 +1,4 @@
-# Number Guessing Game in shlcpp
+# number guessing game
 use "random"
 
 say "=== Number Guessing Game ==="

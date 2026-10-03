@@ -1,5 +1,4 @@
-# ShellLite Standard Math Library
-# Provides comprehensive mathematical, statistical, and trigonometric operations.
+# math helpers
 
 to get_max a, b
     give math_max(a, b)

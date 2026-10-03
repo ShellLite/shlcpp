@@ -235,7 +235,7 @@ Node *Parser::bind_match(int index) {
 
 Node *Parser::bind_when_clause(int index) {
   const auto &tokens = flat_nodes_[index].tokens;
-  // Detect routing pattern: when someone visits/submits
+  // detect routing pattern
   bool is_routing = false;
   for (const auto &t : tokens) {
     if (t.type == TokenType::TOK_VISITS || t.type == TokenType::TOK_SUBMITS ||
@@ -262,7 +262,6 @@ Node *Parser::bind_when_clause(int index) {
     set_node_loc(call, index);
     return call;
   }
-  // Fallback: treat as match statement
   return bind_match(index);
 }
 

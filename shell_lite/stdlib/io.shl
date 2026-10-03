@@ -1,5 +1,4 @@
-# ShellLite Standard IO & File System Library
-# Provides comprehensive file system and path operations.
+# file and path helpers
 
 to std_io_read path
     give io_read(path)

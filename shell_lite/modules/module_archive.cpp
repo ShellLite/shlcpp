@@ -120,7 +120,7 @@ void register_stdlib_archive(VM* vm) {
         return true;
     });
 
-    // Backwards-compatible legacy dispatcher
+    // legacy dispatcher for backwards compat
     NativeRegistry::bind(vm, "archive_op", [](std::string op, std::string source, std::string target) -> void {
         std::string err;
         if (op == "zip" || op == "pack") {

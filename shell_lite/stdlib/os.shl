@@ -1,5 +1,4 @@
-# ShellLite Standard OS Library
-# Provides command execution and operating system interactions.
+# os and shell helpers
 
 to run_command cmd
     give os_execute(cmd)

@@ -252,7 +252,7 @@ class TestFmt(unittest.TestCase):
         self.assertIn("    # only a comment", out)
 
     def test_trailing_block_comment_stays_trailing(self):
-        # m2: trailing /* */ keeps its line like # does
+        # m2 trailing block comment keeps its line like hash does
         src = "x = 1 /* keep */\n"
         out = self.fmt_stdin(src)
         self.assertIn("x = 1  /* keep */", out)

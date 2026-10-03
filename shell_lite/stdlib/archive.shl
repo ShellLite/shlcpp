@@ -1,6 +1,4 @@
-# ShellLite Standard Archive Library
-# Provides comprehensive ZIP and archive management utilities.
-# Usage: use "shell_lite/stdlib/archive.shl"
+# zip and archive helpers
 
 to zip_file source, destination
     give archive_op("zip", source, destination)

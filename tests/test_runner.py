@@ -6,7 +6,7 @@ import ctypes
 
 _SHL_LIB = None
 
-# Ensure SHL_PATH points to the project's stdlib directory for tests
+# point SHL_PATH at the project stdlib for tests
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STDLIB_DIR = os.path.join(_PROJECT_ROOT, "shell_lite", "stdlib")
 if "SHL_PATH" not in os.environ:

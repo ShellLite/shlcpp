@@ -1,6 +1,4 @@
-# ShellLite Standard UI Library
-# Provides natural language UI alerts, prompts, and confirmations.
-# Usage: use "shell_lite/stdlib/ui.shl"
+# alerts prompts confirmations
 
 to show_alert message
     give std_ui_alert(message)

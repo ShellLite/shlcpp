@@ -1,5 +1,4 @@
-# ShellLite Standard JSON Library
-# Provides comprehensive JSON parsing, formatting, and manipulation utilities.
+# json parsing and formatting
 
 to std_json_parse s
     give json_parse(s)

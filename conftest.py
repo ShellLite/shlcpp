@@ -1,5 +1,4 @@
-# This file tells pytest to add the repository root to the Python path
-# which fixes the "ModuleNotFoundError: No module named 'tests' error.
+# put repo root on sys path so test imports work
 
 import sys
 import os

@@ -50,7 +50,7 @@ Node *Parser::bind_func(int index) {
   FunctionDef *node = arena_.emplace<FunctionDef>();
   node->name = name;
 
-  // Optional introductory preposition: with, take, of
+  // optional intro prepositionn
   parser.match({TokenType::TOK_OF, TokenType::TOK_WITH, TokenType::TOK_TAKE});
 
   while (!parser.is_at_end()) {
@@ -205,7 +205,7 @@ Node *Parser::bind_define(int index) {
   if (tokens.size() >= 3 && tokens[1].type == TokenType::TOK_PAGE) {
     FunctionDef *node = arena_.emplace<FunctionDef>();
     node->name = tokens[2].value;
-    // Check for 'using' parameter list
+    // check for using param list
     for (size_t k = 3; k < tokens.size(); k++) {
       if (tokens[k].type == TokenType::TOK_USING) {
         for (size_t j = k + 1; j < tokens.size(); j++) {
@@ -220,7 +220,6 @@ Node *Parser::bind_define(int index) {
     set_node_loc(node, index);
     return node;
   }
-  // Generic define: define X name → Call("define_X", [name, block])
   if (tokens.size() >= 3 && tokens[1].type == TokenType::TOK_ID) {
     std::string func_name = "define_" + std::string(tokens[1].value);
     Call *call = arena_.emplace<Call>(arena_.emplace_string(func_name));
@@ -231,7 +230,6 @@ Node *Parser::bind_define(int index) {
     set_node_loc(call, index);
     return call;
   }
-  // Fallback: treat define as function definition
   return bind_func(index);
 }
 

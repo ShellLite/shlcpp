@@ -1,8 +1,8 @@
 # shlcpp
 
-## shlcpp (ShellLite) is a programming language which has pseudocode like syntax (sort of like COBOL, and AppleScript)
+### shlcpp (ShellLite (i know it's a weird name don't bother me) but in cpp) is a programming language which has pseudocode like syntax (i know it's a really weird concept but this should help people get a good grasp of the logic of programming before stepping into a more powerful programming language) (sort of like COBOL and AppleScript)
 
-### Developer's Note:- Hi I am Shrey :), I started ShellLite (shlcpp) after looking at kids struggle (in grade 11th cs, we just started with python at that time) with learning syntax in school, and from there my journey began, learning about how programming languages work, etc. that lead to me writing the initial prototype of ShellLite written in python... Since then it always bugged me that the performance for the language was pretty crap, so almost immediately after i was happy with the prototype and wanted to do some proper testing and benchmarks i began the work on shlcpp... and here we are today :)
+### Developer's Note:- Hi I am Shrey :), I started ShellLite (shlcpp) after looking at kids struggle (in grade 11th cs, we just started with python at that time) with learning syntax in school, and from there my journey began (BOOM), learning about how programming languages work, etc. that lead to me writing the initial prototype of ShellLite written in python (yes i know don't judge me)... Since then it always bugged me that the performance for the language was pretty crap (like how she treats u), so almost immediately after i was happy with the prototype and wanted to do some proper testing and benchmarks i began the work on shlcpp... and here we are today :) (or i guess a couple of days/weeks/months ahead?)
 
 ## Some Simple Examples
 
@@ -85,6 +85,7 @@ shlcpp check script.shl
 shlcpp -c script.shl script.shbc
 shlcpp script.shbc
 ```
+^ I also added the formator but will add it here in a bit
 
 ## Tests
 
@@ -95,7 +96,7 @@ pytest tests/ -v
 ## Documentation
 
 - [Language Specification](LANGUAGE_SPEC.md)
-- Other Documentation WIP
+- [Other Documentation don't read it unless u want horrors](docs/) 
 
 ## License
 

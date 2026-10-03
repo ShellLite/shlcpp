@@ -128,7 +128,7 @@ class ShellLiteDocument:
             self.parse_and_analyze()
             return
 
-        # Find first and last differing lines
+        # find first and last differing lines
         diff_start = 0
         while diff_start < len(old_lines) and diff_start < len(new_lines) and old_lines[diff_start] == new_lines[diff_start]:
             diff_start += 1

@@ -131,7 +131,7 @@ void register_stdlib_csv(VM* vm) {
         return csv_serialize_impl(data);
     });
 
-    // Backwards-compatible legacy dispatcher
+    // legacy dispatcher for backwards compat
     NativeRegistry::register_builtin(vm, "csv_op", -1, [](VM* vm, int arg_count) -> Value {
         if (arg_count < 2) return Value();
         std::string op = vm->peek(arg_count - 1).to_string();

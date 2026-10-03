@@ -1,6 +1,4 @@
-# ShellLite Prelude
-# This module automatically loads the core standard library for ShellLite.
-# It serves as the gateway to the massive standard library system.
+# prelude, pulls in the stdlib
 
 use "io"
 use "net"

@@ -1,4 +1,4 @@
-# Hello World in shlcpp
+# hello world
 say "Hello, World!"
 
 name = ask "What is your name? "

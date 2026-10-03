@@ -204,7 +204,7 @@ void run_repl() {
     }
 
     if (!accumulated_code.empty() && line.empty()) {
-      // Empty line signals end of multiline input
+      // empty line ends multiline input
     } else {
       accumulated_code += line + "\n";
       size_t first = line.find_first_not_of(" \t");
@@ -216,7 +216,7 @@ void run_repl() {
             word.rfind("class ", 0) == 0 || word.rfind("thing ", 0) == 0 ||
             word.rfind("can ", 0) == 0 || word.rfind("repeat ", 0) == 0 ||
             word.rfind("loop ", 0) == 0 || word.rfind("match ", 0) == 0) {
-          continue; // Wait for multiline body
+          continue; // wait for multiline body
         }
       }
     }

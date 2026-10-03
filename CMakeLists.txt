@@ -1,7 +1,3 @@
-# ==============================================================================
-# shlcpp Build Configuration (Reproducible Build Baseline)
-# Target Version: 0.1.0
-# ==============================================================================
 cmake_minimum_required(VERSION 3.15)
 project(shlcpp VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -11,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Quality Gates: Compiler warning configurations
+# compiler warning config
 if(MSVC)
     add_compile_options(/W3 /EHsc)
 else()
@@ -30,11 +26,6 @@ endif()
 
 include(FetchContent)
 
-# ------------------------------------------------------------------------------
-# 1. Pinned External Dependencies
-# ------------------------------------------------------------------------------
-
-# 1.1 zlib (v1.3.1 - Jan 2024)
 FetchContent_Declare(
     zlib
     GIT_REPOSITORY https://github.com/madler/zlib.git
@@ -50,7 +41,6 @@ if(NOT TARGET ZLIB::ZLIB)
     add_library(ZLIB::ZLIB ALIAS zlibstatic)
 endif()
 
-# 1.2 libcurl (curl-8_7_1 - Mar 2024)
 FetchContent_Declare(
     curl
     GIT_REPOSITORY https://github.com/curl/curl.git
@@ -70,7 +60,6 @@ endif()
 
 FetchContent_MakeAvailable(curl)
 
-# 1.3 clip (Clipboard library - Dec 2023)
 FetchContent_Declare(
     clip
     GIT_REPOSITORY https://github.com/dacap/clip.git
@@ -78,7 +67,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(clip)
 
-# 1.4 SDL2 (release-2.30.2 - Apr 2024)
 FetchContent_Declare(
     SDL2
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -87,7 +75,6 @@ FetchContent_Declare(
 set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(SDL2)
 
-# 1.5 Dear ImGui (v1.90.5 - Apr 2024)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
@@ -95,7 +82,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# 1.6 cpp-httplib (v0.15.3 - Feb 2024)
 FetchContent_Declare(
     httplib
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
@@ -104,7 +90,6 @@ FetchContent_Declare(
 set(HTTPLIB_COMPILE ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(httplib)
 
-# 1.7 libzip (v1.10.1 - Aug 2023)
 FetchContent_Declare(
     libzip
     GIT_REPOSITORY https://github.com/nih-at/libzip.git
@@ -120,7 +105,6 @@ set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(LIBZIP_DO_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(libzip)
 
-# 1.8 SQLite3 (Amalgamation)
 FetchContent_Declare(
     sqlite3
     GIT_REPOSITORY https://github.com/azadkuh/sqlite-amalgamation.git
@@ -128,9 +112,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sqlite3)
 
-# ------------------------------------------------------------------------------
-# 2. Source Files
-# ------------------------------------------------------------------------------
 set(SHELL_LITE_SRCS
     shell_lite/main.cpp
     shell_lite/parser/parser_core.cpp
@@ -184,9 +165,6 @@ set(SOURCES
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer2.cpp
 )
 
-# ------------------------------------------------------------------------------
-# 3. Executable and Library Targets
-# ------------------------------------------------------------------------------
 add_library(shell_lite_core OBJECT ${SOURCES})
 set_target_properties(shell_lite_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

@@ -165,7 +165,7 @@ void register_stdlib_io(VM* vm) {
         return Value(list);
     });
 
-    // Path Helpers
+    // path helpers
     NativeRegistry::bind(vm, "path_join", [](std::string a, std::string b) -> std::string {
         return (std::filesystem::path(a) / b).string();
     });
@@ -182,7 +182,7 @@ void register_stdlib_io(VM* vm) {
         return std::filesystem::path(path).stem().string();
     });
 
-    // File Metadata
+    // file metadata
     NativeRegistry::bind(vm, "file_size", [](std::string path) -> double {
         std::error_code ec;
         auto sz = std::filesystem::file_size(path, ec);
@@ -190,7 +190,7 @@ void register_stdlib_io(VM* vm) {
         return (double)sz;
     });
 
-    // Line I/O
+    // line io
     NativeRegistry::register_builtin(vm, "read_lines", 1, [](VM* vm, int arg_count) -> Value {
         std::string path = vm->peek(0).to_string();
         auto* list = vm->arena().allocate<ObjList>();

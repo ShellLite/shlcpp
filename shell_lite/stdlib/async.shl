@@ -1,6 +1,4 @@
-# ShellLite Standard Async Library
-# Provides natural language bindings for concurrency and synchronization.
-# Usage: use "shell_lite/stdlib/async.shl"
+# concurrency helpers
 
 to wait_for task
     give task_await(task)

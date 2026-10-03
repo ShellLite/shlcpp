@@ -54,7 +54,7 @@ std::string get_os_name() {
 }
 
 void clear_console() {
-  // Empty or ANSI escape code can be used for Linux
+  // noop or ansi escape on linux
 }
 
 double execute_process(const std::string& cmd) {
