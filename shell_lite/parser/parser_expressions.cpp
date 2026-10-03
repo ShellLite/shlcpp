@@ -129,7 +129,9 @@ Node *Parser::SubParser::parse_opg() {
     if (expect_operand) {
       if (token.type == TokenType::TOK_NUMBER) {
         double val = parse_number_literal(token.value);
-        output_stack.push_back(arena_.emplace<Number>(val));
+        Number *num = arena_.emplace<Number>(val);
+        num->lexeme = std::string(token.value);
+        output_stack.push_back(num);
         expect_operand = false;
       } else if (token.type == TokenType::TOK_STRING) {
         output_stack.push_back(arena_.emplace<String>(
@@ -651,7 +653,9 @@ Node *Parser::SubParser::parse_primary() {
   }
   if (match(TokenType::TOK_NUMBER)) {
     double val = parse_number_literal(previous().value);
-    return arena_.emplace<Number>(val);
+    Number *num = arena_.emplace<Number>(val);
+    num->lexeme = std::string(previous().value);
+    return num;
   }
   if (match(TokenType::TOK_STRING))
     return arena_.emplace<String>(

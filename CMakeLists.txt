@@ -142,6 +142,7 @@ set(SHELL_LITE_SRCS
     shell_lite/parser/parser_imports.cpp
     shell_lite/parser/parser_expressions.cpp
     shell_lite/error/error_reporter.cpp
+    shell_lite/formatter.cpp
     shell_lite/concurrency/thread_pool.cpp
     shell_lite/compiler.cpp
     shell_lite/vm.cpp

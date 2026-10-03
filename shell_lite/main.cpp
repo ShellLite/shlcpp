@@ -9,6 +9,7 @@
 #include "lexer.hpp"
 #include "parser.hpp"
 #include "ast_printer.hpp"
+#include "formatter.hpp"
 #include "vm.hpp"
 
 #ifdef _WIN32
@@ -53,6 +54,14 @@ static bool is_empty_or_comments_only(const std::string &source) {
     if (c == '#') {
       while (i < source.size() && source[i] != '\n')
         i++;
+      continue;
+    }
+    if (c == '/' && i + 1 < source.size() && source[i + 1] == '*') {
+      i += 2;
+      while (i + 1 < source.size() &&
+             !(source[i] == '*' && source[i + 1] == '/'))
+        i++;
+      i++; // park on / uh so the loop hops past it
       continue;
     }
     return false;
@@ -448,12 +457,348 @@ struct CLICommand {
   std::function<int(int, char *[])> handler;
 };
 
+namespace {
+
+std::vector<std::string> split_lines_simple(const std::string &s) {
+  std::vector<std::string> lines;
+  size_t pos = 0;
+  while (pos < s.size()) {
+    size_t nl = s.find('\n', pos);
+    if (nl == std::string::npos) {
+      lines.push_back(s.substr(pos));
+      break;
+    }
+    lines.push_back(s.substr(pos, nl - pos));
+    pos = nl + 1;
+  }
+  return lines;
+}
+
+// tiny unified diff soooo bails to full bodies when the table gets too big
+std::string unified_diff(const std::string &old_text, const std::string &new_text,
+                         const std::string &path) {
+  std::vector<std::string> a = split_lines_simple(old_text);
+  std::vector<std::string> b = split_lines_simple(new_text);
+  size_t n = a.size(), m = b.size();
+  std::ostringstream out;
+  out << "--- " << path << "\n+++ " << path << " (formatted)\n";
+  const size_t kMaxCells = 4000000;
+  if ((n + 1) * (m + 1) > kMaxCells) {
+    for (auto &l : a)
+      out << "-" << l << "\n";
+    for (auto &l : b)
+      out << "+" << l << "\n";
+    return out.str();
+  }
+  std::vector<int> dp((n + 1) * (m + 1), 0);
+  auto at = [&](size_t i, size_t j) -> int & { return dp[i * (m + 1) + j]; };
+  for (size_t i = n; i-- > 0;)
+    for (size_t j = m; j-- > 0;)
+      at(i, j) = (a[i] == b[j]) ? at(i + 1, j + 1) + 1
+                                : std::max(at(i + 1, j), at(i, j + 1));
+  struct Op {
+    char kind;
+    std::string line;
+  };
+  std::vector<Op> ops;
+  size_t i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] == b[j]) {
+      ops.push_back({' ', a[i]});
+      i++;
+      j++;
+    } else if (at(i + 1, j) >= at(i, j + 1)) {
+      ops.push_back({'-', a[i]});
+      i++;
+    } else {
+      ops.push_back({'+', b[j]});
+      j++;
+    }
+  }
+  while (i < n)
+    ops.push_back({'-', a[i++]});
+  while (j < m)
+    ops.push_back({'+', b[j++]});
+  const size_t kCtx = 3;
+  size_t k = 0;
+  bool in_hunk = false;
+  size_t hunk_a = 0, hunk_b = 0;
+  std::vector<Op> hunk;
+  auto flush_hunk = [&]() {
+    if (hunk.empty())
+      return;
+    size_t ca = 0, cb = 0, hd = 0, ad = 0;
+    for (auto &o : hunk) {
+      if (o.kind != '+')
+        ca++;
+      if (o.kind != '-')
+        cb++;
+    }
+    size_t lead = 0;
+    while (lead < hunk.size() && lead < kCtx && hunk[lead].kind == ' ')
+      lead++;
+    out << "@@ -" << (hunk_a + 1) << "," << ca << " +" << (hunk_b + 1) << ","
+        << cb << " @@\n";
+    for (auto &o : hunk)
+      out << o.kind << o.line << "\n";
+    hunk.clear();
+    in_hunk = false;
+  };
+  size_t p = 0;
+  while (p < ops.size()) {
+    if (ops[p].kind == ' ') {
+      size_t q = p;
+      while (q < ops.size() && ops[q].kind == ' ')
+        q++;
+      size_t run = q - p;
+      if (run > 2 * kCtx) {
+        if (in_hunk) {
+          for (size_t t = 0; t < kCtx; t++)
+            hunk.push_back(ops[p + t]);
+          flush_hunk();
+        }
+        p = q - kCtx;
+        hunk_a = hunk_b = 0;
+        size_t ii = 0, jj = 0;
+        for (size_t t = 0; t < p; t++) {
+          if (ops[t].kind != '+')
+            ii++;
+          if (ops[t].kind != '-')
+            jj++;
+        }
+        hunk_a = ii;
+        hunk_b = jj;
+        for (size_t t = p; t < p + kCtx && t < q; t++)
+          hunk.push_back(ops[t]);
+        in_hunk = true;
+        p = q;
+        continue;
+      }
+      for (size_t t = p; t < q; t++) {
+        if (!in_hunk) {
+          size_t start = (t >= kCtx) ? t - kCtx : 0;
+          hunk_a = hunk_b = 0;
+          for (size_t u = 0; u < start; u++) {
+            if (ops[u].kind != '+')
+              hunk_a++;
+            if (ops[u].kind != '-')
+              hunk_b++;
+          }
+          for (size_t u = start; u < t; u++)
+            hunk.push_back(ops[u]);
+          in_hunk = true;
+        }
+        hunk.push_back(ops[t]);
+      }
+      p = q;
+    } else {
+      if (!in_hunk) {
+        size_t start = (p >= kCtx) ? p - kCtx : 0;
+        hunk_a = hunk_b = 0;
+        for (size_t u = 0; u < start; u++) {
+          if (ops[u].kind != '+')
+            hunk_a++;
+          if (ops[u].kind != '-')
+            hunk_b++;
+        }
+        for (size_t u = start; u < p; u++)
+          hunk.push_back(ops[u]);
+        in_hunk = true;
+      }
+      hunk.push_back(ops[p]);
+      p++;
+    }
+  }
+  if (in_hunk)
+    flush_hunk();
+  return out.str();
+}
+
+// drop carriage returns so crlf files compare clean against lf output
+static std::string strip_cr(const std::string &s) {
+  std::string r;
+  r.reserve(s.size());
+  for (size_t i = 0; i < s.size(); i++) {
+    if (s[i] == '\r' && i + 1 < s.size() && s[i + 1] == '\n')
+      continue;
+    r.push_back(s[i]);
+  }
+  return r;
+}
+
+int atomic_write_file(const std::string &path, const std::string &content) {
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  if (fs::is_symlink(fs::symlink_status(path, ec)))
+    return -2; // nah not touching symlinks
+  std::string tmp = path + ".shlfmt.tmp";
+  for (int attempt = 0; attempt < 100; attempt++) {
+    std::string cand = (attempt == 0) ? tmp : tmp + "." + std::to_string(attempt);
+    if (fs::exists(cand, ec))
+      continue;
+    tmp = cand;
+    break;
+  }
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f.is_open())
+      return -1;
+    f << content;
+    f.flush();
+    if (!f)
+      return -1;
+  }
+#ifdef _WIN32
+  // rename fails over an existing file on windows so drop it first
+  fs::remove(path, ec);
+  ec.clear();
+#endif
+  fs::rename(tmp, path, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    return -1;
+  }
+  return 0;
+}
+
+std::string format_source_text(const std::string &source,
+                               shell_lite::FormatOptions opts,
+                               const std::string &filename = "") {
+  if (!filename.empty())
+    shell_lite::apply_editorconfig(filename, opts);
+  shell_lite::Parser parser(source);
+  auto nodes = parser.parse();
+  for (const auto &diag : parser.diagnostics())
+    shell_lite::ErrorReporter::report(diag);
+  if (nodes.empty() && !is_empty_or_comments_only(source))
+    throw shell_lite::SyntaxError("formatter: parser returned no statements");
+  shell_lite::Formatter fmt(opts);
+  return fmt.format(nodes, source);
+}
+
+}
+
+static int handle_fmt(int argc, char *argv[]) {
+  shell_lite::FormatOptions opts;
+  std::vector<std::string> files;
+  bool show_help = false;
+  for (int k = 2; k < argc; k++) {
+    std::string a = argv[k];
+    if (a == "--check")
+      opts.check = true;
+    else if (a == "--diff")
+      opts.diff = true;
+    else if (a == "--stdin")
+      opts.stdin_mode = true;
+    else if (a == "--help" || a == "-h")
+      show_help = true;
+    else if (a.rfind("--range=", 0) == 0) {
+      std::string r = a.substr(8);
+      size_t c = r.find(':');
+      if (c == std::string::npos) {
+        std::cerr << "Usage: shlcpp fmt [--range START:END] ..." << std::endl;
+        return 1;
+      }
+      opts.range_start = std::atoi(r.substr(0, c).c_str());
+      opts.range_end = std::atoi(r.substr(c + 1).c_str());
+      if (opts.range_start < 1 || opts.range_end < opts.range_start) {
+        std::cerr << "Error: invalid --range (want 1-based START:END)" << std::endl;
+        return 1;
+      }
+    } else if (a.rfind("--edition=", 0) == 0) {
+      // no editions yet so dis does nothing for now
+    } else if (!a.empty() && a[0] == '-') {
+      std::cerr << "Unknown option: " << a << std::endl;
+      return 1;
+    } else {
+      files.push_back(a);
+    }
+  }
+  if (show_help) {
+    std::cout << "Usage: shlcpp fmt [options] [file.shl ...]\n"
+                 "\nOptions:\n"
+                 "  --check        do not write; exit 1 if any file needs formatting\n"
+                 "  --diff         print a unified diff of the changes\n"
+                 "  --stdin        read source from stdin, write formatted to stdout\n"
+                 "  --range=S:E    only reformat statements fully inside lines S..E\n"
+                 "  --edition=YEAR accepted no-op hook for future editions\n";
+    return 0;
+  }
+  if (opts.stdin_mode) {
+    if (!files.empty()) {
+      std::cerr << "Error: --stdin takes no file arguments" << std::endl;
+      return 1;
+    }
+    return run_and_report([&]() -> int {
+      std::string source((std::istreambuf_iterator<char>(std::cin)),
+                         std::istreambuf_iterator<char>());
+      std::string out = format_source_text(source, opts);
+      if (opts.check) {
+        bool same = (out == source) || (strip_cr(out) == strip_cr(source));
+        return same ? 0 : 1;
+      }
+      if (opts.diff) {
+        if (out != source)
+          std::cout << unified_diff(source, out, "<stdin>");
+        return 0;
+      }
+      std::cout << out;
+      return 0;
+    });
+  }
+  if (files.empty()) {
+    std::cerr << "Usage: shlcpp fmt [options] <file.shl> [...]" << std::endl;
+    return 1;
+  }
+  if (opts.check)
+    opts.write = false;
+  if (opts.diff)
+    opts.write = false;
+  return run_and_report([&]() -> int {
+    int rc = 0;
+    for (const auto &path : files) {
+      std::ifstream file(path, std::ios::binary);
+      if (!file.is_open()) {
+        std::cerr << "Error: Could not open file: " << path << std::endl;
+        rc = 3;
+        continue;
+      }
+      std::string source((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+      file.close();
+      std::string out = format_source_text(source, opts, path);
+      if (out == source || strip_cr(out) == strip_cr(source)) {
+        continue;
+      }
+      if (opts.check) {
+        std::cout << "would reformat " << path << std::endl;
+        rc = 1;
+        continue;
+      }
+      if (opts.diff) {
+        std::cout << unified_diff(source, out, path);
+        continue;
+      }
+      int w = atomic_write_file(path, out);
+      if (w == -2) {
+        std::cerr << "Error: refusing to format symlink: " << path << std::endl;
+        rc = 3;
+      } else if (w != 0) {
+        std::cerr << "Error: could not write file: " << path << std::endl;
+        rc = 3;
+      }
+    }
+    return rc;
+  });
+}
+
 static const std::vector<CLICommand> CLI_COMMANDS = {
   {"check",   "-k",            "check <file.shl>",         "Validate syntax and parser AST without execution", handle_check},
   {"ast",     "-a",            "ast <file.shl>",           "Output Abstract Syntax Tree in JSON format",       handle_ast},
   {"compile", "-c",            "-c, --compile <in> <out>", "Compile source script to bytecode (.shbc)",        handle_compile},
   {"eval",    "-e",            "-e, --eval <code>",        "Evaluate inline code string directly",             handle_eval},
   {"version", "-v",            "-v, --version",            "Display runtime version",                          handle_version},
+  {"fmt",     "",              "fmt [options] <file.shl>", "Format source files (gofmt-style, in place)",      handle_fmt},
 };
 
 static int handle_help(int argc, char *argv[]) {

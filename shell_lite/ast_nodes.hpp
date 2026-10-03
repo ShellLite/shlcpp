@@ -105,6 +105,7 @@ struct Node {
 
 struct Number : Node {
     double value;
+    std::string lexeme;
     explicit Number(double v = 0) : value(v) {}
     std::string node_type() const override { return "Number"; }
     bool pushes_value_as_statement() const override { return true; }

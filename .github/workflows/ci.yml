@@ -76,6 +76,30 @@ jobs:
         .\shlcpp.exe check examples\guessing_game.shl
         .\shlcpp.exe ast examples\guessing_game.shl
 
+    - name: Formatter Idempotency Gate
+      shell: bash
+      run: |
+        exe=./shlcpp
+        if [ "$RUNNER_OS" = "Windows" ]; then exe=./shlcpp.exe; fi
+        python - "$exe" << 'PYEOF'
+        import subprocess, sys, glob
+        exe = sys.argv[1]
+        bad = 0
+        files = glob.glob("shell_lite/stdlib/*.shl") + glob.glob("examples/*.shl") + glob.glob("tests/scripts/*.shl")
+        for f in files:
+            with open(f, encoding="utf-8") as fh:
+                src = fh.read()
+            once = subprocess.run([exe, "fmt", "--stdin"], input=src,
+                                  capture_output=True, text=True).stdout
+            twice = subprocess.run([exe, "fmt", "--stdin"], input=once,
+                                   capture_output=True, text=True).stdout
+            if once != twice:
+                print(f"NOT IDEMPOTENT: {f}")
+                bad += 1
+        print(f"fmt idempotency: {len(files) - bad}/{len(files)} files")
+        sys.exit(1 if bad else 0)
+        PYEOF
+
     - name: Run Pytest Test Suite
       shell: bash
       run: |
