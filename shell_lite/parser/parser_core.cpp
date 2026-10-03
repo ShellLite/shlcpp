@@ -192,6 +192,7 @@ Node *Parser::bind_node(int index) {
       head.type == TokenType::TOK_DEFINE || head.type == TokenType::TOK_SPAWN ||
       head.type == TokenType::TOK_AWAIT || head.type == TokenType::TOK_EXIT ||
       head.type == TokenType::TOK_STOP || head.type == TokenType::TOK_SKIP ||
+      head.type == TokenType::TOK_DEL ||
       head.type == TokenType::TOK_PARALLEL ||
       head.type == TokenType::TOK_LOCK || head.type == TokenType::TOK_SEND ||
       head.type == TokenType::TOK_RECEIVE ||
@@ -332,6 +333,8 @@ Node *Parser::bind_head_dispatcher(int index, TokenType type) {
     return bind_stop(index);
   case TokenType::TOK_SKIP:
     return bind_skip(index);
+  case TokenType::TOK_DEL:
+    return bind_del(index);
   case TokenType::TOK_PARALLEL:
     return bind_parallel(index);
   case TokenType::TOK_LOCK:

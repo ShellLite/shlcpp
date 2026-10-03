@@ -232,6 +232,8 @@ bool Chunk::verify() const {
             case OP_LIST:
             case OP_DICT:
             case OP_LIST_APPEND:
+            case OP_SET_DEFAULTS:
+            case OP_CALL_PARENT_INIT:
             case OP_SPAWN: {
                 if (ip + 1 > code.size()) return false;
                 ip += 1;
@@ -299,6 +301,8 @@ bool Chunk::verify() const {
             case OP_LIST:
             case OP_DICT:
             case OP_LIST_APPEND:
+            case OP_SET_DEFAULTS:
+            case OP_CALL_PARENT_INIT:
             case OP_SPAWN: {
                 ip += 1;
                 break;

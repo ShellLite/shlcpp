@@ -283,5 +283,35 @@ Node *Parser::bind_skip(int index) {
   set_node_loc(n, index);
   return n;
 }
+Node *Parser::bind_del(int index) {
+  const auto &tokens = flat_nodes_[index].tokens;
+  int line = flat_nodes_[index].line;
+  auto err = [&]() {
+    throw SyntaxError(
+        "Syntax error: 'del' needs del obj[key] or del obj.attr at line " +
+        std::to_string(line));
+  };
+  Node *target = parse_expr_recursive(extract_expr_tokens(tokens, 1),
+                                      flat_nodes_[index].child_indices);
+  if (!target)
+    err();
+  Node *obj = nullptr;
+  Node *key = nullptr;
+  if (IndexAccess *idx = dynamic_cast<IndexAccess *>(target)) {
+    obj = idx->obj;
+    key = idx->index;
+  } else if (PropertyAccess *prop = dynamic_cast<PropertyAccess *>(target)) {
+    obj = prop->base;
+    if (!obj)
+      obj = arena_.emplace<VarAccess>(prop->instance_name);
+    key = arena_.emplace<String>(
+        arena_.emplace_string(std::string(prop->property_name)));
+  } else {
+    err();
+  }
+  DelStmt *n = arena_.emplace<DelStmt>(obj, key);
+  set_node_loc(n, index);
+  return n;
+}
 
 } // namespace shell_lite

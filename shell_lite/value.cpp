@@ -82,6 +82,10 @@ static std::string format_value_helper(const Value& val, int depth) {
     if (val.is_task()) return "<task>";
     if (val.is_channel()) return "<channel>";
     if (val.is_iterator()) return "<iterator>";
+    if (val.is_regex()) {
+        auto* r = static_cast<ObjRegex*>(val.get_obj());
+        return "/" + r->pattern + "/" + r->flags;
+    }
     return "unknown";
 }
 

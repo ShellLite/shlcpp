@@ -27,6 +27,7 @@ struct ObjChannel;
 struct ObjIterator;
 struct ObjDatabase;
 struct ObjLock;
+struct ObjRegex;
 
 enum class ValueType : uint8_t { VAL_NULL, VAL_BOOL, VAL_NUMBER, VAL_OBJ };
 
@@ -60,6 +61,7 @@ struct Value {
     bool is_iterator() const { return is_obj() && get_obj()->type == ObjType::ITERATOR; }
     bool is_database() const { return is_obj() && get_obj()->type == ObjType::DATABASE; }
     bool is_lock() const { return is_obj() && get_obj()->type == ObjType::LOCK; }
+    bool is_regex() const { return is_obj() && get_obj()->type == ObjType::REGEX; }
 
     ObjDatabase* as_database() const { return reinterpret_cast<ObjDatabase*>(get_obj()); }
     ObjLock* as_lock() const { return reinterpret_cast<ObjLock*>(get_obj()); }

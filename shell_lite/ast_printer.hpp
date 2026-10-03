@@ -212,6 +212,9 @@ public:
     void visit(FileWriteNode* /*node*/) override { out_ << "{\"type\": \"FileWriteNode\"}"; }
     void visit(FileReadNode* /*node*/) override { out_ << "{\"type\": \"FileReadNode\"}"; }
     void visit(NamespaceDecl* /*node*/) override { out_ << "{\"type\": \"NamespaceDecl\"}"; }
+    void visit(RegexLiteral* node) override { out_ << "{\"type\": \"RegexLiteral\", \"pattern\": \"" << escape_string(node->pattern) << "\"}"; }
+    void visit(DelStmt* /*node*/) override { out_ << "{\"type\": \"DelStmt\"}"; }
+    void visit(ParentInitCall* /*node*/) override { out_ << "{\"type\": \"ParentInitCall\"}"; }
 
 private:
     std::ostream &out_;

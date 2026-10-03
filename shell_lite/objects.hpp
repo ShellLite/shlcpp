@@ -7,6 +7,7 @@
 #include <future>
 #include <map>
 #include <queue>
+#include <regex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -177,6 +178,7 @@ struct ObjFunction : public Callable {
   std::unique_ptr<struct Chunk> chunk;
   std::string name;
   std::string source_file;
+  std::vector<Value> default_args;
 
   ObjFunction();
   ~ObjFunction();
@@ -246,6 +248,7 @@ struct ObjClass : public GCObject {
   std::string name;
   std::unordered_map<std::string, ObjClosure *> methods;
   std::vector<std::string> default_fields;
+  ObjClass *parent = nullptr;
 
   explicit ObjClass(std::string n)
       : GCObject(ObjType::CLASS), name(std::move(n)) {}
@@ -273,6 +276,24 @@ struct ObjModule : public GCObject {
   void mark_children() override;
   GCObject *clone(GCArena &target,
                   std::unordered_map<GCObject *, GCObject *> &clones) override;
+};
+
+struct ObjRegex : public GCObject {
+  std::string pattern;
+  std::string flags;
+  std::regex compiled;
+
+  ObjRegex(std::string p, std::string f, std::regex r)
+      : GCObject(ObjType::REGEX), pattern(std::move(p)), flags(std::move(f)),
+        compiled(std::move(r)) {}
+  void mark_children() override {}
+  GCObject *clone(GCArena &target,
+                  std::unordered_map<GCObject *, GCObject *> &clones) override {
+    if (clones.count(this)) return clones[this];
+    auto *r = target.allocate<ObjRegex>(pattern, flags, compiled);
+    clones[this] = r;
+    return r;
+  }
 };
 
 } // namespace shell_lite

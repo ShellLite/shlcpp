@@ -40,6 +40,7 @@ const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"listen", TokenType::TOK_LISTEN}, {"port", TokenType::TOK_PORT}, {"model", TokenType::TOK_MODEL},
     {"create", TokenType::TOK_CREATE}, {"table", TokenType::TOK_TABLE}, {"insert", TokenType::TOK_INSERT},
     {"find", TokenType::TOK_FIND}, {"update", TokenType::TOK_UPDATE}, {"delete", TokenType::TOK_DELETE},
+    {"del", TokenType::TOK_DEL},
     {"where", TokenType::TOK_WHERE}, {"every", TokenType::TOK_EVERY}, {"minute", TokenType::TOK_MINUTE},
     {"minutes", TokenType::TOK_MINUTE}, {"second", TokenType::TOK_SECOND}, {"seconds", TokenType::TOK_SECOND},
     {"serve", TokenType::TOK_SERVE},

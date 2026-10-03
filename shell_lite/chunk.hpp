@@ -82,6 +82,11 @@ enum OpCode : uint8_t {
   OP_IMPORT,
   OP_IN,
   OP_NOT_IN,
+  OP_INHERIT,
+  OP_REGEX,
+  OP_DEL,
+  OP_SET_DEFAULTS,
+  OP_CALL_PARENT_INIT,
   OP_HALT
 };
 

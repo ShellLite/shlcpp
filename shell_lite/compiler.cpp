@@ -603,6 +603,16 @@ public:
   // spin up sub-compiler for function body and emit closure
   void visit(FunctionDef *node) override {
     update_loc(node);
+    bool seen_default = false;
+    for (auto &arg : node->args) {
+      bool has_default = std::get<1>(arg) != nullptr;
+      if (has_default) {
+        seen_default = true;
+      } else if (seen_default) {
+        throw CompileError("default arguments must be trailing",
+                           {source_file, current_line, current_col});
+      }
+    }
     CompilerState *sub =
         new CompilerState(state, std::string(node->name), source_file, vm);
     CompilerState *old = state;
@@ -637,6 +647,18 @@ public:
     for (auto &uv : uvs) {
       emit_byte(uv.is_local ? 1 : 0);
       emit_short(uv.index);
+    }
+
+    int default_count = 0;
+    for (auto &arg : node->args) {
+      if (std::get<1>(arg) != nullptr) {
+        std::get<1>(arg)->accept(this);
+        default_count++;
+      }
+    }
+    if (default_count > 0) {
+      emit_byte(OP_SET_DEFAULTS);
+      emit_byte((uint8_t)default_count);
     }
 
     if (!compiling_method) {
@@ -1132,8 +1154,41 @@ public:
       emit_byte(OP_METHOD);
       emit_short(make_string_constant(std::string(m->name)));
     }
+    if (node->parent) {
+      emit_byte(OP_GET_GLOBAL);
+      emit_short(make_string_constant(std::string(*node->parent)));
+      emit_byte(OP_INHERIT);
+    }
     emit_byte(OP_DEFINE_GLOBAL);
     emit_short(make_string_constant(std::string(node->name)));
+  }
+
+  void visit(RegexLiteral *node) override {
+    update_loc(node);
+    emit_string_constant(node->pattern);
+    emit_string_constant(node->flags);
+    emit_byte(OP_REGEX);
+  }
+
+  void visit(DelStmt *node) override {
+    update_loc(node);
+    node->obj->accept(this);
+    node->key->accept(this);
+    emit_byte(OP_DEL);
+  }
+
+  void visit(ParentInitCall *node) override {
+    update_loc(node);
+    emit_byte(OP_GET_GLOBAL);
+    emit_short(make_string_constant(std::string(node->parent_name)));
+    if (node->args.size() > 254) {
+      throw CompileError("Too many arguments for super() call (max 254)",
+                         {source_file, current_line, current_col});
+    }
+    for (auto *arg_node : node->args)
+      arg_node->accept(this);
+    emit_byte(OP_CALL_PARENT_INIT);
+    emit_byte((uint8_t)node->args.size());
   }
 
   // new class instance and call constructor

@@ -22,7 +22,7 @@ struct SliceNode; struct DbInsertNode; struct DbQueryNode; struct DbFindNode; st
 struct WebListenNode; struct WebRouteNode; struct WebServeNode;
 struct NlpAddNode; struct NlpRemoveNode; struct NlpTimerNode;
 struct FileWriteNode; struct FileReadNode;
-struct NamespaceDecl;
+struct NamespaceDecl; struct RegexLiteral; struct DelStmt; struct ParentInitCall;
 class Visitor {
 public:
     virtual ~Visitor() = default;
@@ -84,6 +84,9 @@ public:
     virtual void visit(FileWriteNode* node) = 0;
     virtual void visit(FileReadNode* node) = 0;
     virtual void visit(NamespaceDecl* node) = 0;
+    virtual void visit(RegexLiteral* node) = 0;
+    virtual void visit(DelStmt* node) = 0;
+    virtual void visit(ParentInitCall* node) = 0;
 };
 
 struct Node {
@@ -584,6 +587,31 @@ struct NamespaceDecl : Node {
     std::vector<Node*> body;
     NamespaceDecl(std::string n = "", std::vector<Node*> b = {}) : name(std::move(n)), body(std::move(b)) {}
     std::string node_type() const override { return "NamespaceDecl"; }
+    void accept(Visitor* v) override { v->visit(this); }
+};
+
+struct RegexLiteral : Node {
+    std::string pattern;
+    std::string flags;
+    RegexLiteral(std::string p = "", std::string f = "") : pattern(std::move(p)), flags(std::move(f)) {}
+    std::string node_type() const override { return "RegexLiteral"; }
+    bool pushes_value_as_statement() const override { return true; }
+    void accept(Visitor* v) override { v->visit(this); }
+};
+
+struct DelStmt : Node {
+    Node* obj;
+    Node* key;
+    DelStmt(Node* o = nullptr, Node* k = nullptr) : obj(o), key(k) {}
+    std::string node_type() const override { return "DelStmt"; }
+    void accept(Visitor* v) override { v->visit(this); }
+};
+
+struct ParentInitCall : Node {
+    std::string_view parent_name;
+    std::vector<Node*> args;
+    std::string node_type() const override { return "ParentInitCall"; }
+    bool pushes_value_as_statement() const override { return true; }
     void accept(Visitor* v) override { v->visit(this); }
 };
 

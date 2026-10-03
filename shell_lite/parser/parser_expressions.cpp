@@ -492,37 +492,57 @@ Node *Parser::SubParser::parse_call_and_access() {
         consume(TokenType::TOK_RPAREN, "Expected ')'");
         node = mc;
       } else {
-        Call *call = arena_.emplace<Call>();
-        if (VarAccess *v = dynamic_cast<VarAccess *>(node)) {
-          call->name = v->name;
+        VarAccess *v = dynamic_cast<VarAccess *>(node);
+        if (v && v->name == "super" &&
+            parent_.binding_class_parent_.has_value()) {
+          ParentInitCall *sc = arena_.emplace<ParentInitCall>();
+          sc->parent_name = *parent_.binding_class_parent_;
+          if (!check(TokenType::TOK_RPAREN)) {
+            do {
+              if (check(TokenType::TOK_RPAREN))
+                break;
+              Node *arg = parse_expression();
+              if (!arg)
+                throw SyntaxError(
+                    "Syntax error: Expected expression in argument list");
+              sc->args.push_back(arg);
+            } while (match(TokenType::TOK_COMMA));
+          }
+          consume(TokenType::TOK_RPAREN, "Expected ')'");
+          node = sc;
         } else {
-          call->name = "anonymous_call";
-          call->callee = node;
+          Call *call = arena_.emplace<Call>();
+          if (v) {
+            call->name = v->name;
+          } else {
+            call->name = "anonymous_call";
+            call->callee = node;
+          }
+          if (!check(TokenType::TOK_RPAREN)) {
+            do {
+              if (check(TokenType::TOK_RPAREN))
+                break;
+              if (check(TokenType::TOK_ID) && pos_ + 1 < tokens_.size() &&
+                  tokens_[pos_ + 1].type == TokenType::TOK_ASSIGN) {
+                std::string_view key = consume(TokenType::TOK_ID, "").value;
+                consume(TokenType::TOK_ASSIGN, "");
+                Node *arg = parse_expression();
+                if (!arg)
+                  throw SyntaxError(
+                      "Syntax error: Expected expression in argument list");
+                call->kwargs.push_back({key, arg});
+              } else {
+                Node *arg = parse_expression();
+                if (!arg)
+                  throw SyntaxError(
+                      "Syntax error: Expected expression in argument list");
+                call->args.push_back(arg);
+              }
+            } while (match(TokenType::TOK_COMMA));
+          }
+          consume(TokenType::TOK_RPAREN, "Expected ')'");
+          node = call;
         }
-        if (!check(TokenType::TOK_RPAREN)) {
-          do {
-            if (check(TokenType::TOK_RPAREN))
-              break;
-            if (check(TokenType::TOK_ID) && pos_ + 1 < tokens_.size() &&
-                tokens_[pos_ + 1].type == TokenType::TOK_ASSIGN) {
-              std::string_view key = consume(TokenType::TOK_ID, "").value;
-              consume(TokenType::TOK_ASSIGN, "");
-              Node *arg = parse_expression();
-              if (!arg)
-                throw SyntaxError(
-                    "Syntax error: Expected expression in argument list");
-              call->kwargs.push_back({key, arg});
-            } else {
-              Node *arg = parse_expression();
-              if (!arg)
-                throw SyntaxError(
-                    "Syntax error: Expected expression in argument list");
-              call->args.push_back(arg);
-            }
-          } while (match(TokenType::TOK_COMMA));
-        }
-        consume(TokenType::TOK_RPAREN, "Expected ')'");
-        node = call;
       }
     } else if (match(TokenType::TOK_DOT)) {
       if (is_at_end())
@@ -622,6 +642,13 @@ Node *Parser::SubParser::parse_call_and_access() {
 }
 
 Node *Parser::SubParser::parse_primary() {
+  if (match(TokenType::TOK_REGEX)) {
+    std::string raw(previous().value);
+    size_t close = raw.rfind('/');
+    auto *n = arena_.emplace<RegexLiteral>(raw.substr(1, close - 1),
+                                           raw.substr(close + 1));
+    return n;
+  }
   if (match(TokenType::TOK_NUMBER)) {
     double val = 0;
     try {

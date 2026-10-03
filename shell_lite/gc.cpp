@@ -48,6 +48,7 @@ static size_t get_object_size(GCObject* obj) {
         case ObjType::UPVALUE: return sizeof(ObjUpvalue);
         case ObjType::DATABASE: return sizeof(ObjDatabase);
         case ObjType::LOCK: return sizeof(ObjLock);
+        case ObjType::REGEX: return sizeof(ObjRegex);
         default: return sizeof(GCObject);
     }
 }
@@ -290,6 +291,7 @@ void ObjFunction::mark_children() {
     if (chunk) {
         for (auto& v : chunk->constants) v.mark();
     }
+    for (auto& v : default_args) v.mark();
 }
 
 void ObjClosure::mark_children() {
@@ -310,6 +312,10 @@ void ObjUpvalue::mark_children() {
 }
 
 void ObjClass::mark_children() {
+    if (parent && !parent->marked) {
+        parent->marked = true;
+        parent->mark_children();
+    }
     for (auto& pair : methods) {
         if (pair.second && !pair.second->marked) {
             pair.second->marked = true;

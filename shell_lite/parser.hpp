@@ -4,6 +4,7 @@
 #include "gbp_core.hpp"
 #include "lexer.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +37,8 @@ private:
 
   std::vector<Node *> bind_statement_list(const std::vector<int> &indices);
   Node *bind_node(int index);
+  // set while binding the methods of a class body; used to resolve super()
+  std::optional<std::string_view> binding_class_parent_;
 
   class SubParser {
   public:
@@ -123,6 +126,7 @@ private:
   Node *bind_exit(int index);
   Node *bind_stop(int index);
   Node *bind_skip(int index);
+  Node *bind_del(int index);
   Node *bind_parallel(int index);
   Node *bind_lock(int index);
   Node *bind_send(int index);

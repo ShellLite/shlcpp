@@ -95,6 +95,8 @@ Node *Parser::bind_structure(int index) {
   }
 
   bool has_explicit_init = false;
+  auto saved_parent = binding_class_parent_;
+  binding_class_parent_ = node->parent;
   for (int child_idx : flat_nodes_[index].child_indices) {
     Token head = get_effective_head(child_idx);
     if (head.type == TokenType::TOK_HAS) {
@@ -130,10 +132,16 @@ Node *Parser::bind_structure(int index) {
       node->methods.push_back(fn);
     }
   }
+  binding_class_parent_ = saved_parent;
 
-  if (!has_explicit_init) {
+  if (!has_explicit_init && (!node->parent || !node->properties.empty())) {
     FunctionDef *init_fn = arena_.emplace<FunctionDef>();
     init_fn->name = "init";
+    if (node->parent) {
+      ParentInitCall *super_init = arena_.emplace<ParentInitCall>();
+      super_init->parent_name = *node->parent;
+      init_fn->body.push_back(super_init);
+    }
     for (auto &prop : node->properties) {
       init_fn->args.push_back({prop.first, prop.second, std::nullopt});
       PropertyAssign *pa = arena_.emplace<PropertyAssign>();

@@ -73,7 +73,7 @@ Value ObjFunction::call(VM* vm, int arg_count) {
 void ObjFunction::serialize(std::ostream& out) const {
     static constexpr uint32_t SHBC_FILE_MAGIC = 0x43424853; // "SHBC"
     static constexpr uint16_t SHBC_VERSION_MAJOR = 1;
-    static constexpr uint16_t SHBC_VERSION_MINOR = 0;
+    static constexpr uint16_t SHBC_VERSION_MINOR = 2;
 
     out.write(reinterpret_cast<const char*>(&SHBC_FILE_MAGIC), sizeof(SHBC_FILE_MAGIC));
     out.write(reinterpret_cast<const char*>(&SHBC_VERSION_MAJOR), sizeof(SHBC_VERSION_MAJOR));
@@ -91,7 +91,11 @@ void ObjFunction::serialize(std::ostream& out) const {
     uint32_t sl = static_cast<uint32_t>(source_file.length());
     out.write(reinterpret_cast<const char*>(&sl), sizeof(sl));
     if (sl > 0) out.write(source_file.data(), sl);
-    
+
+    uint32_t dc = static_cast<uint32_t>(default_args.size());
+    out.write(reinterpret_cast<const char*>(&dc), sizeof(dc));
+    for (const auto& d : default_args) serialize_value(out, d);
+
     if (chunk) {
         chunk->serialize(out);
     } else {
@@ -140,7 +144,13 @@ ObjFunction* ObjFunction::deserialize(std::istream& in, GCArena& arena) {
         if (!in) throw std::runtime_error("Unexpected EOF reading source file name");
     }
     f->source_file = s;
-    
+
+    if (minor >= 1) {
+        uint32_t dc = 0; in.read(reinterpret_cast<char*>(&dc), sizeof(dc));
+        if (!in || dc > 1024) throw std::runtime_error("Invalid default arg count in bytecode");
+        for (uint32_t i = 0; i < dc; ++i) f->default_args.push_back(deserialize_value(in, arena));
+    }
+
     f->chunk = std::unique_ptr<Chunk>(Chunk::deserialize(in, arena));
     return f;
 }
@@ -251,6 +261,7 @@ GCObject* ObjFunction::clone(GCArena& target, std::unordered_map<GCObject*, GCOb
     f->upvalue_count = upvalue_count;
     f->name = name;
     f->source_file = source_file;
+    for (const auto& d : default_args) f->default_args.push_back(d.clone_val(target, clones));
     if (chunk) f->chunk = std::unique_ptr<Chunk>(chunk->clone(target, clones));
     return f;
 }
@@ -287,9 +298,11 @@ GCObject* ObjClass::clone(GCArena& target, std::unordered_map<GCObject*, GCObjec
     if (clones.count(this)) return clones[this];
     auto* c = target.allocate<ObjClass>(name);
     clones[this] = c;
+    if (parent) c->parent = static_cast<ObjClass*>(parent->clone(target, clones));
     for (const auto& pair : methods) {
         c->methods[pair.first] = static_cast<ObjClosure*>(pair.second->clone(target, clones));
     }
+    for (const auto& f : default_fields) c->default_fields.push_back(f);
     return c;
 }
 

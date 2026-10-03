@@ -15,6 +15,7 @@
 #include <ctime>
 #include <filesystem>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <cassert>
 
@@ -544,12 +545,23 @@ std::string VM::read_string() { return read_string_ref(); }
 
 // spin up a new callframe check arity first so args dont mismatch
 bool VM::call(ObjClosure *closure, int arg_count) {
-  if (closure->function->arity >= 0 && arg_count != closure->function->arity) {
-    has_error = true;
-    error_value = Value(arena_.allocate_string(
-        "Expected " + std::to_string(closure->function->arity) +
-        " arguments but got " + std::to_string(arg_count) + "."));
-    return false;
+  ObjFunction *function = closure->function;
+  if (function->arity >= 0) {
+    int arity = function->arity;
+    int required = arity - (int)function->default_args.size();
+    if (arg_count > arity || arg_count < required) {
+      has_error = true;
+      error_value = Value(arena_.allocate_string(
+          "Expected " + std::to_string(required) +
+          (required < arity
+               ? " to " + std::to_string(arity)
+               : "") +
+          " arguments but got " + std::to_string(arg_count) + "."));
+      return false;
+    }
+    for (int i = arg_count; i < arity; i++)
+      push(function->default_args[i - required]);
+    arg_count = arity;
   }
   frames.push_back({closure, closure->function->chunk->code.data(),
                     stack_top - arg_count - 1});
@@ -1391,6 +1403,144 @@ Value VM::run(int target_frame_depth) {
       klass->default_fields.push_back(name);
       break;
     }
+    case OP_INHERIT: {
+      Value parent_val = pop();
+      ObjClass *klass = static_cast<ObjClass *>(peek(0).get_obj());
+      if (!parent_val.is_class()) {
+        has_error = true;
+        error_value = Value(arena_.allocate_string(
+            "cannot inherit from a non-class value"));
+        break;
+      }
+      ObjClass *parent = static_cast<ObjClass *>(parent_val.get_obj());
+      klass->parent = parent;
+      for (const auto &pair : parent->methods) {
+        if (klass->methods.find(pair.first) == klass->methods.end())
+          klass->methods[pair.first] = pair.second;
+      }
+      std::vector<std::string> fields;
+      for (const auto &f : parent->default_fields) {
+        if (std::find(klass->default_fields.begin(),
+                      klass->default_fields.end(), f) ==
+            klass->default_fields.end())
+          fields.push_back(f);
+      }
+      for (const auto &f : klass->default_fields)
+        fields.push_back(f);
+      klass->default_fields = std::move(fields);
+      break;
+    }
+    case OP_CALL_PARENT_INIT: {
+      uint8_t arg_count = read_byte();
+      Value parent_val = peek(arg_count);
+      Value self_val = frames.back().slots[0];
+      ObjClosure *parent_init = nullptr;
+      if (parent_val.is_class() && self_val.is_instance()) {
+        ObjClass *parent = static_cast<ObjClass *>(parent_val.get_obj());
+        auto it = parent->methods.find("init");
+        if (it != parent->methods.end())
+          parent_init = it->second;
+      }
+      if (parent_init != nullptr) {
+        ObjInstance *inst = static_cast<ObjInstance *>(self_val.get_obj());
+        auto *bm = arena_.allocate<BoundMethod>(inst, parent_init);
+        Value bm_val(bm);
+        stack_top[-1 - arg_count] = bm_val;
+        call_value(bm_val, arg_count);
+      } else {
+        stack_top -= arg_count + 1;
+        push(Value());
+      }
+      break;
+    }
+    case OP_REGEX: {
+      Value flags_val = pop();
+      Value pattern_val = pop();
+      std::string pattern = pattern_val.as_string();
+      std::string flags = flags_val.as_string();
+      std::regex::flag_type rflags = std::regex::ECMAScript;
+      for (char c : flags) {
+        if (c == 'i') {
+          rflags |= std::regex::icase;
+        } else {
+          has_error = true;
+          error_value = Value(arena_.allocate_string(
+              std::string("unknown regex flag '") + c + "'"));
+          break;
+        }
+      }
+      if (has_error)
+        break;
+      std::string cache_key = pattern;
+      cache_key.push_back('\0');
+      cache_key += flags;
+      auto rc_it = regex_cache.find(cache_key);
+      if (rc_it == regex_cache.end()) {
+        try {
+          std::regex compiled(pattern, rflags);
+          rc_it =
+              regex_cache.emplace(std::move(cache_key), std::move(compiled))
+                  .first;
+        } catch (const std::regex_error &) {
+          has_error = true;
+          error_value = Value(arena_.allocate_string(
+              "invalid regex pattern: " + pattern));
+          break;
+        }
+      }
+      push(Value(arena_.allocate<ObjRegex>(pattern, flags, rc_it->second)));
+      break;
+    }
+    case OP_DEL: {
+      Value key = pop();
+      Value obj = pop();
+      if (obj.is_dict()) {
+        auto *dict = static_cast<ObjDict *>(obj.get_obj());
+        std::string k = key.to_string();
+        auto it = dict->elements.find(k);
+        if (it == dict->elements.end()) {
+          has_error = true;
+          error_value = Value(arena_.allocate_string(
+              "del: key not found: " + k));
+        } else {
+          dict->elements.erase(it);
+        }
+      } else if (obj.is_list()) {
+        if (!key.is_number()) {
+          has_error = true;
+          error_value = Value(
+              arena_.allocate_string("del: list index must be a number"));
+          break;
+        }
+        auto *list = static_cast<ObjList *>(obj.get_obj());
+        int idx = (int)key.as_number();
+        if (idx < 0)
+          idx += (int)list->elements.size();
+        if (idx < 0 || idx >= (int)list->elements.size()) {
+          has_error = true;
+          error_value = Value(
+              arena_.allocate_string("del: list index out of range"));
+        } else {
+          list->elements.erase(list->elements.begin() + idx);
+        }
+      } else if (obj.is_instance()) {
+        auto *inst = static_cast<ObjInstance *>(obj.get_obj());
+        std::string k = key.to_string();
+        auto it = inst->fields.find(k);
+        if (it == inst->fields.end()) {
+          has_error = true;
+          error_value = Value(arena_.allocate_string(
+              "del: field not found: " + k));
+        } else {
+          inst->fields.erase(it);
+        }
+      } else {
+        has_error = true;
+        error_value = Value(arena_.allocate_string(
+            "del: can only delete from dicts, lists, and instances"));
+      }
+      break;
+    }
     case OP_GET_SELF_PROPERTY: {
       const std::string &name = read_string_ref();
       Value self_val = frames.back().slots[0];
@@ -1702,11 +1852,35 @@ Value VM::run(int target_frame_depth) {
               "Undefined string method '" + method_name + "'"));
           break;
         }
+      } else if (receiver.is_regex()) {
+        auto *re = static_cast<ObjRegex *>(receiver.get_obj());
+        if (method_name == "test") {
+          if (arg_count != 1) {
+            has_error = true;
+            error_value = Value(arena_.allocate_string(
+                "test() expects 1 argument but got " +
+                std::to_string(arg_count) + "."));
+            break;
+          }
+          bool matched = false;
+          try {
+            matched = std::regex_search(peek(0).to_string(), re->compiled);
+          } catch (const std::regex_error &) {
+            matched = false;
+          }
+          stack_top -= arg_count + 1;
+          push(Value(matched));
+        } else {
+          has_error = true;
+          error_value = Value(arena_.allocate_string(
+              "Undefined regex method '" + method_name + "'"));
+          break;
+        }
       } else {
         has_error = true;
         error_value =
             Value(arena_.allocate_string("Only instances, modules, lists, "
-                                         "dicts, and strings have methods."));
+                                         "dicts, strings, and regexes have methods."));
         break;
       }
       break;
@@ -1772,6 +1946,17 @@ Value VM::run(int target_frame_depth) {
       close_upvalues(stack_top - 1);
       pop();
       break;
+    case OP_SET_DEFAULTS: {
+      uint8_t count = read_byte();
+      Value closure_val = peek(count);
+      auto *closure = static_cast<ObjClosure *>(closure_val.get_obj());
+      closure->function->default_args.clear();
+      for (int i = (int)count - 1; i >= 0; i--)
+        closure->function->default_args.push_back(peek(i));
+      for (uint8_t i = 0; i < count; i++)
+        pop();
+      break;
+    }
     // pop frame, close locals and hand return val back to caller
     case OP_RETURN: {
       Value res = pop();

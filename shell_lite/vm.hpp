@@ -67,6 +67,7 @@ public:
 
     std::shared_ptr<GlobalsTable> globals;
     std::unordered_map<std::string, ObjModule*> module_cache;
+    std::unordered_map<std::string, std::regex> regex_cache;
     std::vector<std::string> search_paths;
     ObjUpvalue* open_upvalues;
     std::vector<TryFrame> try_stack;
