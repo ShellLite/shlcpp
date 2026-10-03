@@ -1,7 +1,0 @@
-i = 0
-while i < 2
-    i = i + 1
-    to f()
-        stop
-    say "defined"
-say "done"

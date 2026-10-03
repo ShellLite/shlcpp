@@ -1,8 +1,0 @@
-to fail()
-    error "worker failed"
-
-try
-    t = spawn fail()
-    await t
-catch e
-    say "caught error"

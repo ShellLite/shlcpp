@@ -1,9 +1,0 @@
-to f()
-    y = 0
-    to g()
-        if true
-            y = 1
-    g()
-    say y
-
-f()

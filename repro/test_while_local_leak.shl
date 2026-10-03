@@ -1,7 +1,0 @@
-to test_leak()
-    i = 0
-    while i < 1000
-        i = i + 1
-        x = i
-test_leak()
-say "done"
