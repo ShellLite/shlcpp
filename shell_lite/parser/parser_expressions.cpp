@@ -10,6 +10,14 @@ Parser::SubParser::SubParser(const std::vector<Token> &tokens, Arena &arena,
       child_indices_(child_indices) {}
 
 Node *Parser::SubParser::parse_expression() {
+  struct DepthGuard {
+    int &depth;
+    explicit DepthGuard(int &d) : depth(d) { ++depth; }
+    ~DepthGuard() { --depth; }
+  };
+  DepthGuard guard(expr_depth_);
+  if (expr_depth_ > 100)
+    throw SyntaxError("Syntax error: Expression nested too deeply");
   return parse_assignment();
 }
 
@@ -195,11 +203,16 @@ Node *Parser::SubParser::parse_assignment() {
       throw SyntaxError(
           "Syntax error: Missing right operand for assignment at line " +
           std::to_string(op.line));
-    if (VarAccess *v = dynamic_cast<VarAccess *>(node))
+    if (VarAccess *v = dynamic_cast<VarAccess *>(node)) {
+      check_assignment_chain(value, true, op.line);
       return arena_.emplace<Assign>(v->name, value);
-    if (IndexAccess *idx = dynamic_cast<IndexAccess *>(node))
+    }
+    if (IndexAccess *idx = dynamic_cast<IndexAccess *>(node)) {
+      check_assignment_chain(value, false, op.line);
       return arena_.emplace<IndexAssign>(idx->obj, idx->index, value);
+    }
     if (PropertyAccess *prop = dynamic_cast<PropertyAccess *>(node)) {
+      check_assignment_chain(value, false, op.line);
       PropertyAssign *pa = arena_.emplace<PropertyAssign>();
       pa->instance_name = prop->instance_name;
       pa->property_name = prop->property_name;
@@ -467,7 +480,13 @@ Node *Parser::SubParser::parse_call_and_access() {
         mc->method_name = pa->property_name;
         if (!check(TokenType::TOK_RPAREN)) {
           do {
-            mc->args.push_back(parse_expression());
+            if (check(TokenType::TOK_RPAREN))
+              break;
+            Node *arg = parse_expression();
+            if (!arg)
+              throw SyntaxError(
+                  "Syntax error: Expected expression in argument list");
+            mc->args.push_back(arg);
           } while (match(TokenType::TOK_COMMA));
         }
         consume(TokenType::TOK_RPAREN, "Expected ')'");
@@ -482,13 +501,24 @@ Node *Parser::SubParser::parse_call_and_access() {
         }
         if (!check(TokenType::TOK_RPAREN)) {
           do {
+            if (check(TokenType::TOK_RPAREN))
+              break;
             if (check(TokenType::TOK_ID) && pos_ + 1 < tokens_.size() &&
                 tokens_[pos_ + 1].type == TokenType::TOK_ASSIGN) {
               std::string_view key = consume(TokenType::TOK_ID, "").value;
               consume(TokenType::TOK_ASSIGN, "");
-              call->kwargs.push_back({key, parse_expression()});
-            } else
-              call->args.push_back(parse_expression());
+              Node *arg = parse_expression();
+              if (!arg)
+                throw SyntaxError(
+                    "Syntax error: Expected expression in argument list");
+              call->kwargs.push_back({key, arg});
+            } else {
+              Node *arg = parse_expression();
+              if (!arg)
+                throw SyntaxError(
+                    "Syntax error: Expected expression in argument list");
+              call->args.push_back(arg);
+            }
           } while (match(TokenType::TOK_COMMA));
         }
         consume(TokenType::TOK_RPAREN, "Expected ')'");
@@ -919,7 +949,10 @@ Node *Parser::SubParser::parse_primary() {
         }
         if (check(TokenType::TOK_RBRACKET))
           break;
-        list->elements.push_back(parse_expression());
+        Node *elem = parse_expression();
+        if (!elem)
+          throw SyntaxError("Syntax error: Expected expression in list literal");
+        list->elements.push_back(elem);
       } else {
         break;
       }

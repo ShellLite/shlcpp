@@ -30,6 +30,35 @@ bool is_anchor_line(std::string_view source, size_t line_start) {
     return true;
 }
 
+static void check_mixed_tabs_continuations(std::string_view raw_block, int start_line,
+                                           std::string_view source,
+                                           std::vector<SyntaxError> &diagnostics) {
+    int cont_line = start_line;
+    size_t search = 0;
+    while (search < raw_block.size()) {
+        size_t nl = raw_block.find('\n', search);
+        if (nl == std::string_view::npos)
+            break;
+        ++cont_line;
+        size_t i = nl + 1;
+        bool c_has_tab = false, c_has_space = false;
+        while (i < raw_block.size() && (raw_block[i] == ' ' || raw_block[i] == '\t')) {
+            if (raw_block[i] == '\t')
+                c_has_tab = true;
+            else
+                c_has_space = true;
+            ++i;
+        }
+        bool has_content = i < raw_block.size() && raw_block[i] != '\n' && raw_block[i] != '\r';
+        if (c_has_tab && c_has_space && has_content) {
+            std::string sl = extract_source_line(source, cont_line);
+            diagnostics.push_back(SyntaxError("IndentationError: mixed tabs and spaces in indentation",
+                                              SourceLocation{"", cont_line, 1, sl, "use either tabs or spaces consistently"}));
+        }
+        search = nl + 1;
+    }
+}
+
 TopographyResult phase1_topography_scan(std::string_view source) {
     TopographyResult result;
     result.nodes.reserve(source.size() / 40);
@@ -148,6 +177,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
                         result.diagnostics.push_back(SyntaxError("IndentationError: mixed tabs and spaces in indentation",
                                                                  SourceLocation{"", start_line, 1, sl, "use either tabs or spaces consistently"}));
                     }
+                    check_mixed_tabs_continuations(raw_block, start_line, source, result.diagnostics);
                     result.nodes.push_back({start_line, indent, -1, raw_block, {}, {}, false});
                 }
 
@@ -325,6 +355,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                         result.diagnostics.push_back(SyntaxError("IndentationError: mixed tabs and spaces in indentation",
                                                                  SourceLocation{"", current_start_line, 1, sl, "use either tabs or spaces consistently"}));
                     }
+                    check_mixed_tabs_continuations(raw_block, current_start_line, source, result.diagnostics);
                     if (!result.has_anchor && indent == 0 && is_anchor_line(source, node_start)) {
                         result.has_anchor = true;
                         result.first_anchor_line = current_start_line;

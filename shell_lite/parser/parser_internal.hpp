@@ -28,4 +28,14 @@ static inline std::string_view get_compound_op_str(TokenType op) {
                                           : "%";
 }
 
+static inline void check_assignment_chain(Node *value, bool outer_is_plain_var,
+                                          int line) {
+  bool v_is_assign = dynamic_cast<Assign *>(value) != nullptr;
+  bool v_is_complex = dynamic_cast<IndexAssign *>(value) != nullptr ||
+                      dynamic_cast<PropertyAssign *>(value) != nullptr;
+  if (v_is_complex || (!outer_is_plain_var && v_is_assign))
+    throw SyntaxError("Syntax error: Cannot chain mixed assignment targets at line " +
+                      std::to_string(line));
+}
+
 } // namespace shell_lite

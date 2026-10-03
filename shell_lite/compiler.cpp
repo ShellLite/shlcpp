@@ -164,6 +164,46 @@ public:
   }
 
   // write value to local slot, upvalue, self prop or global
+  bool assign_declares_local(const std::string &name) {
+    if (resolve_local(state, name) != -1)
+      return false;
+    if (resolve_upvalue(state, name) != -1)
+      return false;
+    if (compiling_method && resolve_local(state, "self") != -1)
+      return false;
+    return state->enclosing != nullptr && state->scope_depth > 0;
+  }
+
+  void compile_assign_expr(Assign *node) {
+    std::vector<std::string> targets;
+    Node *v = node;
+    while (Assign *a = dynamic_cast<Assign *>(v)) {
+      if (!a->value) {
+        throw CompileError("Compilation aborted",
+                           {source_file, current_line, current_col});
+      }
+      targets.emplace_back(a->name);
+      v = a->value;
+    }
+    v->accept(this);
+    std::vector<std::string> setters, declarers;
+    for (auto &t : targets)
+      (assign_declares_local(t) ? declarers : setters).push_back(t);
+    size_t remaining = targets.size();
+    for (auto &t : setters) {
+      if (remaining > 1)
+        emit_byte(OP_DUP);
+      emit_assignment(t);
+      --remaining;
+    }
+    for (auto &t : declarers) {
+      if (remaining > 1)
+        emit_byte(OP_DUP);
+      emit_assignment(t);
+      --remaining;
+    }
+  }
+
   void emit_assignment(const std::string &name) {
     int arg = resolve_local(state, name);
     if (arg != -1) {
@@ -408,8 +448,7 @@ public:
       throw CompileError("Compilation aborted",
                          {source_file, current_line, current_col});
     }
-    node->value->accept(this);
-    emit_assignment(std::string(node->name));
+    compile_assign_expr(node);
   }
 
   void visit(TypedAssign *n) override {

@@ -53,6 +53,36 @@ class TestSyntaxAndRuntimeErrors(unittest.TestCase):
     def test_missing_import(self):
         self.assert_error("import NonExistentModule12345", "Module not found:")
 
+    def test_double_comma_list(self):
+        self.assert_error("x = [1,,2]", "Expected expression in list literal")
+
+    def test_double_comma_call(self):
+        self.assert_error("f(1,,2)", "Expected expression in argument list")
+
+    def test_deep_parens(self):
+        code = "say " + "("*600 + "1" + ")"*600
+        self.assert_error(code, "nested too deeply")
+
+    def test_mixed_tabs_bracket_continuation(self):
+        self.assert_error("x = [\n \t1,\n]", "mixed tabs and spaces")
+
+    def test_chained_assign_var_property(self):
+        code = "class P\n  init():\n    self.x = 0\np = P()\na = p.x = 1"
+        self.assert_error(code, "Cannot chain mixed assignment targets")
+
+    def test_chained_assign_var_index(self):
+        self.assert_error("l = [0]\na = l[0] = 1", "Cannot chain mixed assignment targets")
+
+    def test_chained_assign_property_var(self):
+        code = "class P\n  init():\n    self.x = 0\np = P()\np.x = a = 1"
+        self.assert_error(code, "Cannot chain mixed assignment targets")
+
+    def test_chained_assign_index_var(self):
+        self.assert_error("l = [0]\nl[0] = a = 1", "Cannot chain mixed assignment targets")
+
+    def test_plain_chained_assign_still_works(self):
+        self.assertEqual(run_shl_code("a = b = 1\nsay a + b").strip(), "2")
+
     def test_error_format(self):
         with self.assertRaises(RuntimeError) as ctx:
             run_shl_code('throw "Fatal custom error"')

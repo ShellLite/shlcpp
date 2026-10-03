@@ -17,6 +17,24 @@ class TestInterpreter(unittest.TestCase):
         code = "x = 10\nsay x"
         self.assertEqual(run_shl_code(code).strip(), "10")
 
+    def test_chained_assignment(self):
+        code = "a = b = c = 1\nsay a\nsay b\nsay c"
+        self.assertEqual(run_shl_code(code).strip(), "1\n1\n1")
+
+    def test_chained_assignment_in_function(self):
+        code = "to f()\n    a = b = 1\n    say a\n    say b\nf()"
+        self.assertEqual(run_shl_code(code).strip(), "1\n1")
+
+    def test_chained_assignment_mixed_targets(self):
+        code = "to f()\n    a = 0\n    a = b = 1\n    say a\n    say b\nf()"
+        self.assertEqual(run_shl_code(code).strip(), "1\n1")
+        code = "to f()\n    b = 0\n    a = b = 1\n    say a\n    say b\nf()"
+        self.assertEqual(run_shl_code(code).strip(), "1\n1")
+
+    def test_trailing_comma_call(self):
+        code = "to f(x)\n    say x\nf(1,)"
+        self.assertEqual(run_shl_code(code).strip(), "1")
+
     def test_bin_ops(self):
         code = "x = 5 + 5\nsay x"
         self.assertEqual(run_shl_code(code).strip(), "10")

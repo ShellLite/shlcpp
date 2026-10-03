@@ -62,6 +62,7 @@ private:
     Parser &parent_;
     size_t pos_ = 0;
     bool is_complex_ = false;
+    int expr_depth_ = 0;
 
     Node *parse_assignment();
     Node *parse_logical_or();

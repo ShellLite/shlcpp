@@ -249,6 +249,7 @@ Node *Parser::bind_node(int index) {
         Node *val = parse_expr_recursive(
             std::vector<Token>(tokens.begin() + assign_idx + 1, tokens.end()),
             flat_nodes_[index].child_indices);
+        check_assignment_chain(val, true, flat_nodes_[index].line);
         Assign *a = arena_.emplace<Assign>(name, val);
         set_node_loc(a, index);
         return a;
@@ -267,6 +268,7 @@ Node *Parser::bind_node(int index) {
             flat_nodes_[index].child_indices);
 
         TokenType op = tokens[assign_idx].type;
+        check_assignment_chain(val, true, flat_nodes_[index].line);
         if (op != TokenType::TOK_ASSIGN) {
           std::string_view op_str = get_compound_op_str(op);
           val =

@@ -165,11 +165,13 @@ Node *Parser::bind_complex_assignment(int index, size_t assign_idx) {
   }
 
   if (IndexAccess *idx = dynamic_cast<IndexAccess *>(lhs)) {
+    check_assignment_chain(rhs, false, flat_nodes_[index].line);
     IndexAssign *ia = arena_.emplace<IndexAssign>(idx->obj, idx->index, rhs);
     set_node_loc(ia, index);
     return ia;
   }
   if (PropertyAccess *prop = dynamic_cast<PropertyAccess *>(lhs)) {
+    check_assignment_chain(rhs, false, flat_nodes_[index].line);
     PropertyAssign *pa = arena_.emplace<PropertyAssign>();
     pa->instance_name = prop->instance_name;
     pa->property_name = prop->property_name;
@@ -178,6 +180,7 @@ Node *Parser::bind_complex_assignment(int index, size_t assign_idx) {
     return pa;
   }
   if (VarAccess *v = dynamic_cast<VarAccess *>(lhs)) {
+    check_assignment_chain(rhs, true, flat_nodes_[index].line);
     Assign *a = arena_.emplace<Assign>(v->name, rhs);
     set_node_loc(a, index);
     return a;
