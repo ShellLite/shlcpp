@@ -40,6 +40,10 @@ void register_stdlib_os(VM* vm) {
     NativeRegistry::bind(vm, "std_os_platform", []() -> std::string {
         return pal::get_os_name();
     });
+    NativeRegistry::bind(vm, "exit", [vm](std::optional<double> code) -> void {
+        if (vm->has_error) return;
+        std::exit((int)code.value_or(0));
+    });
     NativeRegistry::bind(vm, "os_write_file", [](std::string filename, std::string content) -> bool {
         std::ofstream out(filename);
         out << content;

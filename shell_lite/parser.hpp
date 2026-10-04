@@ -124,7 +124,6 @@ private:
 
   Node *bind_spawn(int index);
   Node *bind_await(int index);
-  Node *bind_exit(int index);
   Node *bind_stop(int index);
   Node *bind_skip(int index);
   Node *bind_del(int index);

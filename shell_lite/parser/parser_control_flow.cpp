@@ -265,13 +265,6 @@ Node *Parser::bind_when_clause(int index) {
   return bind_match(index);
 }
 
-Node *Parser::bind_exit(int index) {
-  Call *n = arena_.emplace<Call>("os_exit");
-  n->args.push_back(
-      parse_expr_recursive(extract_expr_tokens(flat_nodes_[index].tokens, 1)));
-  set_node_loc(n, index);
-  return n;
-}
 Node *Parser::bind_stop(int index) {
   Stop *n = arena_.emplace<Stop>();
   set_node_loc(n, index);

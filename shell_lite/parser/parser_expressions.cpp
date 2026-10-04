@@ -846,7 +846,6 @@ Node *Parser::SubParser::parse_primary() {
              TokenType::TOK_LISTEN,     TokenType::TOK_WRITE,
              TokenType::TOK_READ,       TokenType::TOK_APPEND,
              TokenType::TOK_MIDDLEWARE, TokenType::TOK_CONVERT,
-             TokenType::TOK_INCREMENT,  TokenType::TOK_DECREMENT,
              TokenType::TOK_ON,         TokenType::TOK_REMOVE,
              TokenType::TOK_EVERY,      TokenType::TOK_AFTER,
              TokenType::TOK_EXECUTE,    TokenType::TOK_BY,              TokenType::TOK_AT,         TokenType::TOK_PORT,
