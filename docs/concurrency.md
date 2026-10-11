@@ -25,11 +25,15 @@ chan_close(ch)      # hangs up like she hung up on your face :)
 
 ## locks
 
-shared state? protect it like you try to protect your chips u fatty
+btw spawned tasks are isolated, they get a copy of ur globals not the real thing so there is no shared mutable state to protect. use channels to talk between tasks...
+
+locks exist (`create_lock`, `lock_acquire`, `lock_release`) but since tasks dont share memory u probably dont need them
+
+also FORGET TO RELEASE AND UR DEADLOCKED LMFAO HAVE FUN
 
 ```shl
 l = create_lock()
 lock_acquire(l)
 say "critical section, very serious (unlike u)"
-lock_release(l)   # FORGET THIS AND UR DEADLOCKED LMFAO HAVE FUN
+lock_release(l)
 ```

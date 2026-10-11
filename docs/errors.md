@@ -31,4 +31,4 @@ to f()
 say f()   # 2
 ```
 
-`try`/`always` with no `catch` swallows the error rn. might change to rethrow. dont rely on it okay STUPID?
+`try`/`always` with no `catch` runs cleanup then rethrows the error btw. it does NOT swallow it, dont rely on that okay stupid?

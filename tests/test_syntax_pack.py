@@ -186,5 +186,21 @@ class TestEsay(unittest.TestCase):
         self.assertEqual(result.stderr.strip(), "42")
 
 
+class TestUnexpectedTrailingTokens(unittest.TestCase):
+    def test_say_trailing_tokens_error(self):
+        with self.assertRaises(RuntimeError):
+            run_shl_code("say 1 2 3")
+
+    def test_assign_trailing_tokens_error(self):
+        with self.assertRaises(RuntimeError):
+            run_shl_code("x = 5 10")
+
+
+class TestNoConstKeyword(unittest.TestCase):
+    def test_const_is_syntax_error(self):
+        with self.assertRaises(RuntimeError):
+            run_shl_code("const x = 5")
+
+
 if __name__ == "__main__":
     unittest.main()

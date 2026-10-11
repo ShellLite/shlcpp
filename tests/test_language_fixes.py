@@ -337,5 +337,41 @@ class TestDelStatement(unittest.TestCase):
         self.assertIn("del", str(ctx.exception))
 
 
+class TestPlusMinusWords(unittest.TestCase):
+    def test_plus_word(self):
+        self.assertEqual(run_shl_code('say 10 plus 5').strip(), "15")
+
+    def test_minus_word(self):
+        self.assertEqual(run_shl_code('say 20 minus 8').strip(), "12")
+
+    def test_plus_minus_precedence(self):
+        self.assertEqual(run_shl_code('say 2 plus 3 * 4').strip(), "14")
+
+
+class TestMethodReceivers(unittest.TestCase):
+    def test_method_on_string_literal(self):
+        self.assertEqual(run_shl_code('say "hi".upper()').strip(), "HI")
+
+    def test_method_on_list_literal(self):
+        self.assertEqual(run_shl_code('say [1, 2, 3].len()').strip(), "3")
+
+    def test_method_chained(self):
+        code = 's = "hi"\nsay s.upper().len()\n'
+        self.assertEqual(run_shl_code(code).strip(), "2")
+
+    def test_method_on_paren_expr(self):
+        self.assertEqual(run_shl_code('say ("hi").upper()').strip(), "HI")
+
+
+class TestLambdasInLists(unittest.TestCase):
+    def test_anonymous_fn_in_list(self):
+        code = "x = [to() give 1]\nsay x[0]()\n"
+        self.assertEqual(run_shl_code(code).strip(), "1")
+
+    def test_anonymous_fn_in_list_with_arg(self):
+        code = "x = [to(a) give a * 2]\nsay x[0](21)\n"
+        self.assertEqual(run_shl_code(code).strip(), "42")
+
+
 if __name__ == "__main__":
     unittest.main()

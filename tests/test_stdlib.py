@@ -382,5 +382,17 @@ say caught
             run_shl_code("say divmod(1, 0)")
         self.assertIn("Division by zero", str(ctx.exception))
 
+    def test_list_sort_inplace(self):
+        code = "items = [3, 1, 2]\nlist_sort(items)\nsay items\n"
+        self.assertEqual(run_shl_code(code).strip(), "[1, 2, 3]")
+
+    def test_list_sort_return_value(self):
+        code = "items = [3, 1, 2]\nsorted = list_sort(items)\nsay sorted\n"
+        self.assertEqual(run_shl_code(code).strip(), "[1, 2, 3]")
+
+    def test_list_reverse_inplace(self):
+        code = "items = [1, 2, 3]\nlist_reverse(items)\nsay items\n"
+        self.assertEqual(run_shl_code(code).strip(), "[3, 2, 1]")
+
 if __name__ == "__main__":
     unittest.main()

@@ -203,11 +203,15 @@ received = chan_recv(ch)
 print(received[0]) # 1
 
 # Ownership transfer (tombstones sender variable)
+# Note: only works when passing a plain variable. Passing an expression
+# like data["msg"] sends the value but cannot null the source.
 obj = {"id": 101}
 chan_transfer(ch, obj)
 # obj is now null in sender thread
 
 # Mutual exclusion locks
+# Note: spawned tasks run in isolated state (globals are cloned), so there
+# is no shared mutable memory between tasks. Use channels for communication.
 l = create_lock()
 lock_acquire(l)
 print("In critical section")

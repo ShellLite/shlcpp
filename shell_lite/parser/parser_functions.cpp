@@ -17,22 +17,6 @@ Node *Parser::bind_return(int index) {
   return node;
 }
 
-
-Node *Parser::bind_const(int index) {
-  auto tokens = flat_nodes_[index].tokens;
-  SubParser parser(tokens, arena_, *this);
-  parser.consume(TokenType::TOK_CONST, "Expected 'const'");
-  std::string_view name =
-      parser.consume(TokenType::TOK_ID, "Expected constant name").value;
-  parser.consume(TokenType::TOK_ASSIGN, "Expected '=' after constant name");
-  Node *value = parser.parse_expression();
-  ConstAssign *node = arena_.emplace<ConstAssign>();
-  node->name = name;
-  node->value = value;
-  set_node_loc(node, index);
-  return node;
-}
-
 Node *Parser::bind_func(int index) {
   auto tokens = flat_nodes_[index].tokens;
   SubParser parser(tokens, arena_, *this);

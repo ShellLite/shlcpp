@@ -103,7 +103,6 @@ public:
   void visit(TryAlways *node) override;
   void visit(Match *node) override;
   void visit(ListComprehension *node) override;
-  void visit(ConstAssign *node) override;
   void visit(IndexAccess *node) override;
   void visit(IndexAssign *node) override;
   void visit(Stop *node) override;

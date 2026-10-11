@@ -134,6 +134,18 @@ Node *Parser::bind_print(int index) {
     throw SyntaxError(
         "Syntax error: Missing expression for 'print'/'say' at line " +
         std::to_string(flat_nodes_[index].line));
+  if (!parser.is_at_end()) {
+    if (parser.peek().type == TokenType::TOK_COLON) {
+      parser.advance();
+    }
+  }
+  if (!parser.is_at_end()) {
+    Token extra = parser.peek();
+    throw SyntaxError("Syntax error: Unexpected token '" +
+                             std::string(extra.value) + "' after expression at line " +
+                             std::to_string(extra.line),
+                      SourceLocation{"", extra.line, extra.col});
+  }
   Print *node = arena_.emplace<Print>();
   node->expression = expr;
   node->style = style;

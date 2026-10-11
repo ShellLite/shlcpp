@@ -1274,22 +1274,20 @@ void register_stdlib_core(VM *vm) {
 
   NativeRegistry::register_builtin(vm, "list_reverse", 1, [](VM *vm, int arg_count) -> Value {
     Value val = vm->peek(0);
-    auto *res = vm->arena().allocate<ObjList>();
     if (val.is_list()) {
       auto *list = static_cast<ObjList*>(val.get_obj());
-      res->elements = list->elements;
-      std::reverse(res->elements.begin(), res->elements.end());
+      std::reverse(list->elements.begin(), list->elements.end());
+      return val;
     }
+    auto *res = vm->arena().allocate<ObjList>();
     return Value(res);
   });
 
   NativeRegistry::register_builtin(vm, "list_sort", 1, [](VM *vm, int arg_count) -> Value {
     Value val = vm->peek(0);
-    auto *res = vm->arena().allocate<ObjList>();
     if (val.is_list()) {
       auto *list = static_cast<ObjList*>(val.get_obj());
-      res->elements = list->elements;
-      std::sort(res->elements.begin(), res->elements.end(), [](const Value &a, const Value &b) {
+      std::sort(list->elements.begin(), list->elements.end(), [](const Value &a, const Value &b) {
         if (a.is_number() && b.is_number()) {
           double na = a.as_number();
           double nb = b.as_number();
@@ -1300,7 +1298,9 @@ void register_stdlib_core(VM *vm) {
         if (a.is_string() && b.is_string()) return a.as_string() < b.as_string();
         return a.to_string() < b.to_string();
       });
+      return val;
     }
+    auto *res = vm->arena().allocate<ObjList>();
     return Value(res);
   });
 

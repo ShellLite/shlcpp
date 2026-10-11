@@ -14,7 +14,7 @@ struct If; struct While; struct ForIn; struct ListVal; struct Dictionary;
 struct Boolean; struct FunctionDef; struct AnonymousFunction; struct Call; struct Return;
 struct ClassDef; struct Instantiation; struct MethodCall; struct PropertyAccess;
 struct Import; struct ImportAs; struct Try; struct TryAlways; struct Match;
-struct ListComprehension; struct ConstAssign; struct IndexAccess; struct IndexAssign;
+struct ListComprehension; struct IndexAccess; struct IndexAssign;
 struct Stop; struct Skip; struct Throw; struct PythonImport; struct FromImport; struct Pass;
 struct For; struct Unless; struct Repeat; struct Forever; struct Until;
 struct Spawn; struct Parallel;
@@ -55,7 +55,6 @@ public:
     virtual void visit(TryAlways* node) = 0;
     virtual void visit(Match* node) = 0;
     virtual void visit(ListComprehension* node) = 0;
-    virtual void visit(ConstAssign* node) = 0;
     virtual void visit(IndexAccess* node) = 0;
     virtual void visit(IndexAssign* node) = 0;
     virtual void visit(Stop* node) = 0;
@@ -291,6 +290,7 @@ struct MethodCall : Node {
     std::string_view method_name;
     std::vector<Node*> args;
     std::vector<std::pair<std::string_view, Node*>> kwargs;
+    Node* base = nullptr;
     std::string node_type() const override { return "MethodCall"; }
     bool pushes_value_as_statement() const override { return true; }
     void accept(Visitor* v) override { v->visit(this); }
@@ -352,14 +352,6 @@ struct ListComprehension : Node {
     Node* iterable;
     Node* condition = nullptr;
     std::string node_type() const override { return "ListComprehension"; }
-    void accept(Visitor* v) override { v->visit(this); }
-};
-
-struct ConstAssign : Node {
-    std::string_view name;
-    Node* value;
-    ConstAssign(std::string_view n = "", Node* v = nullptr) : name(n), value(v) {}
-    std::string node_type() const override { return "ConstAssign"; }
     void accept(Visitor* v) override { v->visit(this); }
 };
 

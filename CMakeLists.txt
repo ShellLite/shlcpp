@@ -180,6 +180,11 @@ if(WIN32)
 endif()
 
 add_executable(shell_lite_exec $<TARGET_OBJECTS:shell_lite_core>)
+add_custom_command(TARGET shell_lite_exec POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/shell_lite/stdlib
+    $<TARGET_FILE_DIR:shell_lite_exec>/stdlib
+    COMMENT "Copying stdlib .shl files next to binary")
 target_include_directories(shell_lite_exec PRIVATE 
     shell_lite
     ${sqlite3_SOURCE_DIR}

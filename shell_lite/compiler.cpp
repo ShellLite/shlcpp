@@ -389,15 +389,6 @@ public:
             names.push_back(n);
           }
         }
-      } else if (auto *ca = dynamic_cast<ConstAssign *>(stmt)) {
-        std::string n(ca->name);
-        if (resolve_local(state, n) == -1 &&
-            resolve_upvalue(state, n) == -1 &&
-            !(compiling_method && resolve_local(state, "self") != -1)) {
-          if (std::find(names.begin(), names.end(), n) == names.end()) {
-            names.push_back(n);
-          }
-        }
       } else if (auto *if_node = dynamic_cast<If *>(stmt)) {
         collect_shallow_bindings(if_node->body, names);
         collect_shallow_bindings(if_node->else_body, names);
@@ -456,11 +447,6 @@ public:
   void visit(TypedAssign *n) override {
     update_loc(n);
     visit(static_cast<Assign *>(n));
-  }
-  void visit(ConstAssign *n) override {
-    update_loc(n);
-    n->value->accept(this);
-    emit_assignment(std::string(n->name));
   }
 
   // short-circuit and/or or emit binary opcode
@@ -728,6 +714,30 @@ public:
     } else {
       emit_byte(OP_CALL);
       emit_byte((uint8_t)node->args.size());
+    }
+
+    if ((name == "chan_transfer" || name == "channel_transfer") &&
+        node->args.size() >= 2 &&
+        resolve_local(state, name) == -1 &&
+        resolve_upvalue(state, name) == -1) {
+      if (auto *va = dynamic_cast<VarAccess *>(node->args[1])) {
+        std::string vname(va->name);
+        int targ = resolve_local(state, vname);
+        emit_byte(OP_NULL);
+        if (targ != -1) {
+          emit_byte(OP_SET_LOCAL);
+          emit_short((uint16_t)targ);
+          emit_byte(OP_POP);
+        } else if ((targ = resolve_upvalue(state, vname)) != -1) {
+          emit_byte(OP_SET_UPVALUE);
+          emit_short((uint16_t)targ);
+          emit_byte(OP_POP);
+        } else {
+          emit_byte(OP_SET_GLOBAL);
+          emit_short(make_string_constant(vname));
+          emit_byte(OP_POP);
+        }
+      }
     }
   }
 
@@ -1082,20 +1092,24 @@ public:
 
   void visit(MethodCall *node) override {
     update_loc(node);
-    std::string name(node->instance_name);
-    int arg = resolve_local(state, name);
-    if (arg != -1) {
-      emit_byte(OP_GET_LOCAL);
-      emit_short((uint16_t)arg);
-    } else if ((arg = resolve_upvalue(state, name)) != -1) {
-      emit_byte(OP_GET_UPVALUE);
-      emit_short((uint16_t)arg);
-    } else if (compiling_method && resolve_local(state, "self") != -1) {
-      emit_byte(OP_GET_SELF_PROPERTY);
-      emit_short(make_string_constant(name));
+    if (node->base) {
+      node->base->accept(this);
     } else {
-      emit_byte(OP_GET_GLOBAL);
-      emit_short(make_string_constant(name));
+      std::string name(node->instance_name);
+      int arg = resolve_local(state, name);
+      if (arg != -1) {
+        emit_byte(OP_GET_LOCAL);
+        emit_short((uint16_t)arg);
+      } else if ((arg = resolve_upvalue(state, name)) != -1) {
+        emit_byte(OP_GET_UPVALUE);
+        emit_short((uint16_t)arg);
+      } else if (compiling_method && resolve_local(state, "self") != -1) {
+        emit_byte(OP_GET_SELF_PROPERTY);
+        emit_short(make_string_constant(name));
+      } else {
+        emit_byte(OP_GET_GLOBAL);
+        emit_short(make_string_constant(name));
+      }
     }
 
     if (node->args.size() > 255) {

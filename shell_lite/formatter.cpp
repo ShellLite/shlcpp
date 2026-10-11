@@ -387,10 +387,6 @@ int Formatter::stmt_end(Node *node) {
     int ve = expr_end(x->value);
     if (ve > e)
       e = ve;
-  } else if (auto *x = dynamic_cast<ConstAssign *>(node)) {
-    int ve = expr_end(x->value);
-    if (ve > e)
-      e = ve;
   } else if (auto *x = dynamic_cast<Return *>(node)) {
     int ve = expr_end(x->value);
     if (ve > e)
@@ -849,7 +845,11 @@ void Formatter::visit(Call *node) {
 }
 
 void Formatter::visit(MethodCall *node) {
-  out_ << node->instance_name << "." << node->method_name;
+  if (node->base)
+    emit_expr(node->base);
+  else
+    out_ << node->instance_name;
+  out_ << "." << node->method_name;
   std::vector<std::string> parts;
   for (Node *a : node->args)
     parts.push_back(render_flat(a));
@@ -956,11 +956,6 @@ void Formatter::visit(Assign *node) {
 
 void Formatter::visit(TypedAssign *node) {
   out_ << node->name << " as " << node->type_hint << " = ";
-  emit_expr(node->value);
-}
-
-void Formatter::visit(ConstAssign *node) {
-  out_ << "const " << node->name << " = ";
   emit_expr(node->value);
 }
 

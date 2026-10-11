@@ -83,5 +83,15 @@ lock_block(my_lock, run_critical)
         output = run_shl_code(code).strip()
         self.assertEqual(output, "inside lock block")
 
+    def test_chan_transfer_tombstones(self):
+        code = (
+            "ch = chan_open()\n"
+            "obj = {\"id\": 101}\n"
+            "chan_transfer(ch, obj)\n"
+            "say obj == null\n"
+            "say chan_recv(ch)[\"id\"]\n"
+        )
+        self.assertEqual(run_shl_code(code).strip(), "true\n101")
+
 if __name__ == "__main__":
     unittest.main()

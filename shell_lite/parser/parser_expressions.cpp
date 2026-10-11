@@ -403,7 +403,8 @@ Node *Parser::SubParser::parse_shift() {
 
 Node *Parser::SubParser::parse_additive() {
   Node *node = parse_multiplicative();
-  while (match({TokenType::TOK_PLUS_OP, TokenType::TOK_MINUS_OP})) {
+  while (match({TokenType::TOK_PLUS_OP, TokenType::TOK_MINUS_OP,
+                TokenType::TOK_PLUS_WORD, TokenType::TOK_MINUS_WORD})) {
     Token op = previous();
     Node *right = parse_multiplicative();
     if (!right)
@@ -411,8 +412,9 @@ Node *Parser::SubParser::parse_additive() {
                                std::string(op.value) + "' at line " +
                                std::to_string(op.line),
                         SourceLocation{"", op.line, op.col});
-    node = arena_.emplace<BinOp>(
-        node, op.type == TokenType::TOK_PLUS_OP ? "+" : "-", right);
+    bool is_plus = (op.type == TokenType::TOK_PLUS_OP ||
+                    op.type == TokenType::TOK_PLUS_WORD);
+    node = arena_.emplace<BinOp>(node, is_plus ? "+" : "-", right);
   }
   return node;
 }
@@ -480,6 +482,7 @@ Node *Parser::SubParser::parse_call_and_access() {
         MethodCall *mc = arena_.emplace<MethodCall>();
         mc->instance_name = pa->instance_name;
         mc->method_name = pa->property_name;
+        mc->base = pa->base;
         if (!check(TokenType::TOK_RPAREN)) {
           do {
             if (check(TokenType::TOK_RPAREN))
@@ -620,8 +623,12 @@ Node *Parser::SubParser::parse_call_and_access() {
           if (tokens_[to_check].type == TokenType::TOK_RBRACKET)
             d--;
           if (tokens_[to_check].type == TokenType::TOK_TO && d == 0) {
-            has_to = true;
-            break;
+            bool is_anon_fn = (to_check + 1 < tokens_.size() &&
+                               tokens_[to_check + 1].type == TokenType::TOK_LPAREN);
+            if (!is_anon_fn) {
+              has_to = true;
+              break;
+            }
           }
           to_check++;
         }
@@ -667,6 +674,25 @@ Node *Parser::SubParser::parse_primary() {
 
   if (match({TokenType::TOK_TAKE, TokenType::TOK_LAMBDA}))
     return parse_lambda();
+  if (match(TokenType::TOK_TO)) {
+    AnonymousFunction *lam = arena_.emplace<AnonymousFunction>();
+    if (match(TokenType::TOK_LPAREN)) {
+      while (!check(TokenType::TOK_RPAREN) && !is_at_end()) {
+        if (is_identifier_like(peek().type)) {
+          lam->args.push_back(advance().value);
+        } else if (match(TokenType::TOK_COMMA)) {
+          continue;
+        } else {
+          break;
+        }
+      }
+      consume(TokenType::TOK_RPAREN, "Expected ')' after function params");
+    }
+    match(TokenType::TOK_ARROW);
+    match(TokenType::TOK_RETURN);
+    lam->body = parse_expression();
+    return lam;
+  }
   if (match({TokenType::TOK_MAX, TokenType::TOK_MIN, TokenType::TOK_CLAMPED,
              TokenType::TOK_LERP}))
     return parse_math_intrinsic(previous().type);
@@ -1265,7 +1291,20 @@ Node *Parser::parse_expr_recursive(const std::vector<Token> &tokens,
   if (tokens.empty())
     return nullptr;
   SubParser p(tokens, arena_, *this, is_complex, child_indices);
-  return p.parse_expression();
+  Node *result = p.parse_expression();
+  if (result && !p.is_at_end()) {
+    if (p.peek().type == TokenType::TOK_COLON) {
+      p.advance();
+      if (p.is_at_end())
+        return result;
+    }
+    Token extra = p.peek();
+    throw SyntaxError("Syntax error: Unexpected token '" +
+                             std::string(extra.value) + "' after expression at line " +
+                             std::to_string(extra.line),
+                      SourceLocation{"", extra.line, extra.col});
+  }
+  return result;
 }
 
 Node *Parser::parse_expr_recursive(const std::vector<Token> &tokens,

@@ -183,7 +183,6 @@ public:
     void visit(TryAlways* /*node*/) override { out_ << "{\"type\": \"TryAlways\"}"; }
     void visit(Match* /*node*/) override { out_ << "{\"type\": \"Match\"}"; }
     void visit(ListComprehension* /*node*/) override { out_ << "{\"type\": \"ListComprehension\"}"; }
-    void visit(ConstAssign* node) override { out_ << "{\"type\": \"ConstAssign\", \"name\": \"" << node->name << "\"}"; }
     void visit(IndexAccess* /*node*/) override { out_ << "{\"type\": \"IndexAccess\"}"; }
     void visit(IndexAssign* /*node*/) override { out_ << "{\"type\": \"IndexAssign\"}"; }
     void visit(Stop* /*node*/) override { out_ << "{\"type\": \"Stop\"}"; }

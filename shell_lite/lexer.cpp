@@ -22,7 +22,7 @@ const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"make", TokenType::TOK_MAKE}, {"new", TokenType::TOK_MAKE}, {"the", TokenType::TOK_NOISE},
     {"let", TokenType::TOK_NOISE}, {"please", TokenType::TOK_NOISE}, {"yes", TokenType::TOK_YES},
     {"no", TokenType::TOK_NO}, {"true", TokenType::TOK_YES}, {"false", TokenType::TOK_NO},
-    {"const", TokenType::TOK_CONST}, {"and", TokenType::TOK_AND}, {"or", TokenType::TOK_OR},
+    {"and", TokenType::TOK_AND}, {"or", TokenType::TOK_OR},
     {"not", TokenType::TOK_NOT}, {"try", TokenType::TOK_TRY}, {"catch", TokenType::TOK_CATCH},
     {"always", TokenType::TOK_ALWAYS}, {"finally", TokenType::TOK_ALWAYS}, {"error", TokenType::TOK_ERROR},
     {"throw", TokenType::TOK_ERROR}, {"use", TokenType::TOK_USE}, {"as", TokenType::TOK_AS},
@@ -59,6 +59,7 @@ const std::unordered_map<std::string_view, TokenType> KEYWORDS = {
     {"maximum", TokenType::TOK_MAX}, {"minimum", TokenType::TOK_MIN}, {"clamped", TokenType::TOK_CLAMPED},
     {"between", TokenType::TOK_BETWEEN}, {"lerp", TokenType::TOK_LERP},
     {"least", TokenType::TOK_LEAST}, {"exactly", TokenType::TOK_EXACTLY}, {"more", TokenType::TOK_MORE},
+    {"plus", TokenType::TOK_PLUS_WORD}, {"minus", TokenType::TOK_MINUS_WORD},
     {"all", TokenType::TOK_ALL}, {"any", TokenType::TOK_ANY}
 };
 
@@ -70,8 +71,7 @@ bool is_hard_anchor_keyword(std::string_view word) {
     TokenType t = it->second;
     if (t == TokenType::TOK_TO || t == TokenType::TOK_FUNCTION || t == TokenType::TOK_DEFINE ||
         t == TokenType::TOK_STRUCTURE || t == TokenType::TOK_NAMESPACE ||
-        t == TokenType::TOK_IMPORT || t == TokenType::TOK_USE || t == TokenType::TOK_FROM ||
-        t == TokenType::TOK_CONST) {
+        t == TokenType::TOK_IMPORT || t == TokenType::TOK_USE || t == TokenType::TOK_FROM) {
         return true;
     }
     return false;
