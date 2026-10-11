@@ -69,6 +69,18 @@ static Value build_request_dict(VM* vm, const httplib::Request& req,
     }
     d->elements["headers"] = Value(h_dict);
 
+    auto* f_dict = vm->arena().allocate<ObjDict>();
+    GCRootGuard guard_f(vm->arena(), f_dict);
+    for (const auto& pair : req.files) {
+        auto* fi = vm->arena().allocate<ObjDict>();
+        GCRootGuard guard_fi(vm->arena(), fi);
+        fi->elements["filename"] = Value(vm->arena().allocate_string(pair.second.filename));
+        fi->elements["content_type"] = Value(vm->arena().allocate_string(pair.second.content_type));
+        fi->elements["content"] = Value(vm->arena().allocate_string(pair.second.content));
+        f_dict->elements[pair.first] = Value(fi);
+    }
+    d->elements["files"] = Value(f_dict);
+
     return Value(d);
 }
 
@@ -79,12 +91,34 @@ void register_stdlib_web(VM* vm) {
             vm->error_value = Value(vm->arena().allocate_string("web_listen expects at least 1 argument (port)"));
             return Value();
         }
+        if (!vm->peek(arg_count - 1).is_number()) {
+            vm->has_error = true;
+            vm->error_value = Value(vm->arena().allocate_string("web_listen expects port to be a number"));
+            return Value();
+        }
         int port = static_cast<int>(vm->peek(arg_count - 1).as_number());
+        std::string host = "127.0.0.1";
+        if (arg_count >= 2) {
+            host = vm->peek(arg_count - 2).to_string();
+        }
 
-        std::thread([vm, port]() {
+        EventLoop::instance().set_server_active(true);
+        auto bound = std::make_shared<std::promise<bool>>();
+        std::future<bool> bound_future = bound->get_future();
+        std::thread([vm, port, host, bound]() {
             httplib::Server svr;
 
-            svr.set_pre_routing_handler([vm](const httplib::Request& req, httplib::Response& res) {
+            svr.set_socket_options([](socket_t sock) {
+                int yes = 1;
+#if defined(__linux__) || defined(__APPLE__)
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+#elif defined(_WIN32)
+                setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                           reinterpret_cast<const char*>(&yes), sizeof(yes));
+#endif
+            });
+
+            auto dispatch = [vm](const httplib::Request& req, httplib::Response& res) {
                 std::string method = req.method;
                 std::string path = req.path;
 
@@ -116,7 +150,7 @@ void register_stdlib_web(VM* vm) {
                                     std::string response_body = std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
                                     res.status = 200;
                                     res.set_content(response_body, content_type);
-                                    return httplib::Server::HandlerResponse::Handled;
+                                    return;
                                 }
                             }
                         }
@@ -231,6 +265,10 @@ void register_stdlib_web(VM* vm) {
                                 data.content_type = "text/plain";
                             }
                         }
+                    } else {
+                        data.body = "not found";
+                        data.status = 404;
+                        data.content_type = "text/plain";
                     }
                     promise->set_value(data);
                 });
@@ -241,13 +279,27 @@ void register_stdlib_web(VM* vm) {
                     res.set_header(h.first, h.second);
                 }
                 res.set_content(res_data.body, res_data.content_type);
-                return httplib::Server::HandlerResponse::Handled;
-            });
+            };
 
-            svr.listen("0.0.0.0", port);
+            svr.Get(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+            svr.Post(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+            svr.Put(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+            svr.Delete(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+            svr.Patch(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+            svr.Options(".*", [dispatch](const httplib::Request& req, httplib::Response& res) { dispatch(req, res); });
+
+            if (!svr.bind_to_port(host, port)) {
+                std::cerr << "web: could not listen on " << host << ":" << port << std::endl;
+                EventLoop::instance().set_server_active(false);
+                bound->set_value(false);
+                return;
+            }
+            bound->set_value(true);
+            svr.listen_after_bind();
+            EventLoop::instance().set_server_active(false);
         }).detach();
 
-        return Value(true);
+        return Value(bound_future.get());
     });
 
     NativeRegistry::register_builtin(vm, "std_web_start", -1, [](VM* vm, int arg_count) -> Value {
@@ -310,12 +362,27 @@ void register_stdlib_web(VM* vm) {
     });
 
     NativeRegistry::register_builtin(vm, "start_server", -1, [](VM* vm, int arg_count) -> Value {
-        int port = (arg_count >= 1) ? static_cast<int>(vm->peek(0).as_number()) : 8080;
+        int port = 8080;
+        if (arg_count >= 1) {
+            if (!vm->peek(arg_count - 1).is_number()) {
+                vm->has_error = true;
+                vm->error_value = Value(vm->arena().allocate_string("start_server expects port to be a number"));
+                return Value();
+            }
+            port = static_cast<int>(vm->peek(arg_count - 1).as_number());
+        }
+        bool has_host = arg_count >= 2;
+        Value host_val = has_host ? vm->peek(arg_count - 2) : Value();
         vm->push(Value(static_cast<double>(port)));
+        int fwd = 1;
+        if (has_host) {
+            vm->push(host_val);
+            fwd = 2;
+        }
         Value v_listen = vm->globals->values["std_web_listen"];
         if (v_listen.is_callable()) {
             Callable* c = static_cast<Callable*>(v_listen.get_obj());
-            return c->call(vm, 1);
+            return c->call(vm, fwd);
         }
         return Value();
     });

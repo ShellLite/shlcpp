@@ -15,5 +15,8 @@ to serve_files_from directory, url
 to start_server server_port
     std_web_listen(server_port)
 
+to start_server_on server_port, host
+    std_web_listen(server_port, host)
+
 to add_middleware handler
     std_web_on_request("middleware", "__middleware__", handler)
