@@ -205,6 +205,55 @@ class ShellLiteDocument:
             self.diagnostics.extend(c.diagnostics)
             self.ast_nodes.extend(c.ast_nodes)
 
+    def _block_comment_state_after(self, line: str, in_block_comment: bool) -> bool:
+        i = 0
+        in_line_comment = False
+        in_quote = ""
+        in_triple_quote = False
+        escaped = False
+        while i < len(line):
+            c = line[i]
+            if in_block_comment:
+                if c == '*' and i + 1 < len(line) and line[i + 1] == '/':
+                    in_block_comment = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if in_line_comment:
+                i += 1
+                continue
+            if in_quote:
+                if escaped:
+                    escaped = False
+                elif c == '\\':
+                    escaped = True
+                elif in_triple_quote and c == in_quote and i + 2 < len(line) and line[i + 1] == in_quote and line[i + 2] == in_quote:
+                    in_quote = ""
+                    in_triple_quote = False
+                    i += 2
+                elif not in_triple_quote and c == in_quote:
+                    in_quote = ""
+                i += 1
+                continue
+            if c == '/' and i + 1 < len(line) and line[i + 1] == '*':
+                in_block_comment = True
+                i += 2
+                continue
+            if c == '#':
+                in_line_comment = True
+                i += 1
+                continue
+            if c == '"' or c == "'":
+                in_quote = c
+                if i + 2 < len(line) and line[i + 1] == c and line[i + 2] == c:
+                    in_triple_quote = True
+                    i += 2
+                i += 1
+                continue
+            i += 1
+        return in_block_comment
+
     def parse_and_analyze(self):
         self.chunks = []
         if not self.lines:
@@ -214,9 +263,11 @@ class ShellLiteDocument:
             return
 
         chunk_starts = [0]
-        for line_idx in range(1, len(self.lines)):
-            if self._is_anchor(self.lines[line_idx]):
+        in_block_comment = False
+        for line_idx, line in enumerate(self.lines):
+            if line_idx > 0 and not in_block_comment and self._is_anchor(line):
                 chunk_starts.append(line_idx)
+            in_block_comment = self._block_comment_state_after(line, in_block_comment)
 
         for i, start_idx in enumerate(chunk_starts):
             end_idx = chunk_starts[i + 1] if i + 1 < len(chunk_starts) else len(self.lines)

@@ -81,6 +81,29 @@ say real_fn()
         output = run_shl_code(code).strip()
         self.assertEqual(output, "999")
 
+    def test_block_comment_with_anchor_line(self):
+        code = """/*
+to do: tidy this
+*/
+to main()
+    say "ok"
+
+main()
+"""
+        output = run_shl_code(code).strip()
+        self.assertEqual(output, "ok")
+
+    def test_unclosed_block_comment(self):
+        code = """to first()
+    give 1
+/* never closed
+to second()
+    give 2
+"""
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed block comment", str(ctx.exception))
+
     def test_statement_not_anchor(self):
         code = """text = "multi
 if condition

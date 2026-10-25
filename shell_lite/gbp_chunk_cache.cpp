@@ -42,10 +42,68 @@ void TopologicalChunkCache::build_from_source(std::string_view source) {
 
     size_t pos = 0;
     int line_count = 1;
+    bool in_block_comment = false;
+    bool in_line_comment = false;
+    char in_quote = 0;
+    bool in_triple_quote = false;
+    bool escaped = false;
     while (pos < source.size()) {
-        if (source[pos] == '\n') {
+        char c = source[pos];
+        if (in_block_comment) {
+            if (c == '*' && pos + 1 < source.size() && source[pos + 1] == '/') {
+                in_block_comment = false;
+                pos += 2;
+                continue;
+            }
+            if (c != '\n') {
+                pos++;
+                continue;
+            }
+        }
+        if (in_line_comment) {
+            if (c == '\n') {
+                in_line_comment = false;
+            } else {
+                pos++;
+                continue;
+            }
+        } else if (in_quote != 0) {
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (in_triple_quote && c == in_quote && pos + 2 < source.size() && source[pos + 1] == in_quote && source[pos + 2] == in_quote) {
+                in_quote = 0;
+                in_triple_quote = false;
+                pos += 2;
+            }
+            else if (!in_triple_quote && c == in_quote) in_quote = 0;
+            if (c != '\n') {
+                pos++;
+                continue;
+            }
+        } else {
+            if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
+                in_block_comment = true;
+                pos += 2;
+                continue;
+            }
+            if (c == '#') {
+                in_line_comment = true;
+                pos++;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                in_quote = c;
+                if (pos + 2 < source.size() && source[pos + 1] == c && source[pos + 2] == c) {
+                    in_triple_quote = true;
+                    pos += 2;
+                }
+                pos++;
+                continue;
+            }
+        }
+        if (c == '\n') {
             size_t next_line_start = pos + 1;
-            if (next_line_start < source.size() && is_anchor_line(source, next_line_start)) {
+            if (!in_block_comment && !in_triple_quote && next_line_start < source.size() && is_anchor_line(source, next_line_start)) {
                 anchor_starts.push_back(next_line_start);
                 anchor_lines.push_back(line_count + 1);
             }

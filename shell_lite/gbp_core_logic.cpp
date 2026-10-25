@@ -100,6 +100,10 @@ TopographyResult phase1_topography_scan(std::string_view source) {
     bool escaped = false;
     bool in_comment = false;
     bool in_block_comment = false;
+    int block_comment_start_line = 0;
+    bool has_bc_recovery = false;
+    size_t bc_recovery_pos = 0;
+    int bc_recovery_line = 0;
 
     while (pos <= source.size()) {
         char c = (pos < source.size()) ? source[pos] : '\n';
@@ -107,6 +111,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         if (in_block_comment) {
             if (c == '*' && pos + 1 < source.size() && source[pos + 1] == '/') {
                 in_block_comment = false;
+                has_bc_recovery = false;
                 pos += 2;
                 continue;
             }
@@ -121,6 +126,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         } else {
             if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
                 in_block_comment = true;
+                block_comment_start_line = line_count;
                 pos += 2;
                 continue;
             } else if (c == '#') {
@@ -148,11 +154,17 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         }
 
         if (c == '\n') {
-            bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0);
+            bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0 || in_block_comment);
 
             if (in_anomaly) {
                 size_t next_line_start = pos + 1;
-                if (is_anchor_line(source, next_line_start)) {
+                if (in_block_comment) {
+                    if (!has_bc_recovery && is_anchor_line(source, next_line_start)) {
+                        has_bc_recovery = true;
+                        bc_recovery_pos = next_line_start;
+                        bc_recovery_line = line_count + 1;
+                    }
+                } else if (is_anchor_line(source, next_line_start)) {
                     if (in_quote != 0) {
                         std::string sl = extract_source_line(source, start_line);
                         result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing " + std::string(1, in_quote) + ")",
@@ -214,7 +226,21 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         pos++;
     }
 
-    if (in_quote != 0) {
+    if (in_block_comment && has_bc_recovery) {
+        std::string sl = extract_source_line(source, block_comment_start_line);
+        result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
+                                                 SourceLocation{"", block_comment_start_line, 1, sl, "add closing '*/'"}));
+        TopographyResult tail = phase1_topography_scan(source.substr(bc_recovery_pos));
+        int line_offset = bc_recovery_line - 1;
+        for (auto& node : tail.nodes) {
+            node.line += line_offset;
+            result.nodes.push_back(std::move(node));
+        }
+        for (auto& diag : tail.diagnostics) {
+            diag.location.line += line_offset;
+            result.diagnostics.push_back(std::move(diag));
+        }
+    } else if (in_quote != 0) {
         std::string sl = extract_source_line(source, start_line);
         result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing quote)",
                                                  SourceLocation{"", start_line, 1, sl, "add closing " + std::string(1, in_quote)}));
@@ -231,9 +257,9 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         result.diagnostics.push_back(SyntaxError("Unclosed brace '{'",
                                                  SourceLocation{"", start_line, 1, sl, "add closing '}'"}));
     } else if (in_block_comment) {
-        std::string sl = extract_source_line(source, start_line);
+        std::string sl = extract_source_line(source, block_comment_start_line);
         result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
-                                                 SourceLocation{"", start_line, 1, sl, "add closing '*/'"}));
+                                                 SourceLocation{"", block_comment_start_line, 1, sl, "add closing '*/'"}));
     }
 
     return result;
@@ -272,6 +298,10 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
     bool escaped = false;
     bool in_comment = false;
     bool in_block_comment = false;
+    int block_comment_start_line = 0;
+    bool has_bc_recovery = false;
+    size_t bc_recovery_pos = 0;
+    int bc_recovery_line = 0;
 
     while (pos <= chunk_end) {
         char c = (pos < chunk_end) ? source[pos] : '\n';
@@ -279,6 +309,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
         if (in_block_comment) {
             if (c == '*' && pos + 1 < source.size() && source[pos + 1] == '/') {
                 in_block_comment = false;
+                has_bc_recovery = false;
                 pos += 2;
                 continue;
             }
@@ -293,6 +324,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
         } else {
             if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
                 in_block_comment = true;
+                block_comment_start_line = line_count;
                 pos += 2;
                 continue;
             } else if (c == '#') {
@@ -320,11 +352,18 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
         }
 
         if (c == '\n') {
-            bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0);
+            bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0 || in_block_comment);
 
             if (in_anomaly) {
-                size_t next_line_start = (pos < chunk_end) ? pos + 1 : pos;
-                if (is_anchor_line(source, next_line_start)) {
+            size_t next_line_start = (pos < chunk_end) ? pos + 1 : pos;
+            if (in_block_comment) {
+                if (!has_bc_recovery && is_anchor_line(source, next_line_start)) {
+                    has_bc_recovery = true;
+                    bc_recovery_pos = next_line_start;
+                    bc_recovery_line = line_count + 1;
+                }
+            } else if (is_anchor_line(source, next_line_start)) {
+
                     if (in_quote != 0) {
                         std::string sl = extract_source_line(source, current_start_line);
                         result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing " + std::string(1, in_quote) + ")",
@@ -395,6 +434,34 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
             line_count++;
         }
         pos++;
+    }
+
+    if (in_block_comment && has_bc_recovery && source.find("*/", bc_recovery_pos) == std::string_view::npos) {
+        std::string sl = extract_source_line(source, block_comment_start_line);
+        result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
+                                                 SourceLocation{"", block_comment_start_line, 1, sl, "add closing '*/'"}));
+        ChunkScanResult tail = scan_chunk(source, bc_recovery_pos, chunk_end, bc_recovery_line);
+        size_t base = result.nodes.size();
+        for (auto& node : tail.nodes) {
+            result.nodes.push_back(std::move(node));
+        }
+        for (auto& diag : tail.diagnostics) {
+            result.diagnostics.push_back(std::move(diag));
+        }
+        if (!result.has_anchor && tail.has_anchor) {
+            result.has_anchor = true;
+            result.first_anchor_line = tail.first_anchor_line;
+            result.first_anchor_node_index = base + tail.first_anchor_node_index;
+        }
+        in_quote = tail.trailing_in_quote;
+        escaped = tail.trailing_escaped;
+        in_comment = tail.trailing_in_comment;
+        in_block_comment = tail.trailing_in_block_comment;
+        paren_depth = tail.trailing_paren_depth;
+        bracket_depth = tail.trailing_bracket_depth;
+        brace_depth = tail.trailing_brace_depth;
+        current_start_line = tail.trailing_start_line;
+        line_count = tail.line_count;
     }
 
     result.trailing_in_quote = in_quote;

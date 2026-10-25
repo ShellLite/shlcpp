@@ -34,6 +34,20 @@ structure Third
         self.assertEqual(doc.symbols[1]["name"], "second")
         self.assertEqual(doc.symbols[2]["name"], "Third")
 
+    def test_block_comment_not_chunk_boundary(self):
+        code = """/*
+to do: tidy this
+*/
+to main()
+    say "ok"
+"""
+        doc = ShellLiteDocument("file:///test.shl", code)
+        self.assertEqual(len(doc.chunks), 2)
+        self.assertEqual(doc.chunks[0].start_line, 1)
+        self.assertEqual(doc.chunks[0].end_line, 3)
+        self.assertEqual(doc.chunks[1].start_line, 4)
+        self.assertEqual(doc.diagnostics, [])
+
     def test_incremental_edit(self):
         code = """to alpha()
     give 1
