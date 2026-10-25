@@ -14,6 +14,7 @@ struct TopologicalChunk {
     size_t start_byte = 0;
     size_t end_byte = 0;
     std::string anchor_keyword;
+    std::string source_text;
     std::vector<GeoNode> nodes;
     std::vector<SyntaxError> diagnostics;
     uint64_t content_hash = 0;

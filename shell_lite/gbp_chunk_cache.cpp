@@ -1,4 +1,5 @@
 #include "gbp_chunk_cache.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <algorithm>
 
@@ -40,7 +41,8 @@ void TopologicalChunkCache::build_from_source(std::string_view source) {
     chunks_.reserve(n);
 
     for (size_t i = 0; i < n; ++i) {
-        TopologicalChunk chunk;
+        chunks_.emplace_back();
+        TopologicalChunk& chunk = chunks_.back();
         chunk.id = static_cast<int>(i);
         chunk.start_line = anchor_lines[i];
         chunk.start_byte = anchor_starts[i];
@@ -52,10 +54,10 @@ void TopologicalChunkCache::build_from_source(std::string_view source) {
         }
         chunk.end_line = std::max(chunk.start_line, (chunk.end_byte > chunk.start_byte && source[chunk.end_byte - 1] == '\n') ? end_l - 1 : end_l);
 
-        std::string_view chunk_text = source.substr(chunk.start_byte, chunk.end_byte - chunk.start_byte);
-        chunk.content_hash = compute_hash(chunk_text);
+        chunk.source_text = std::string(source.substr(chunk.start_byte, chunk.end_byte - chunk.start_byte));
+        chunk.content_hash = compute_hash(chunk.source_text);
 
-        TopographyResult res = phase1_topography_scan(chunk_text);
+        TopographyResult res = phase1_topography_scan(chunk.source_text);
         int line_offset = chunk.start_line - 1;
         for (auto& node : res.nodes) {
             node.line += line_offset;
@@ -65,8 +67,6 @@ void TopologicalChunkCache::build_from_source(std::string_view source) {
         }
         chunk.nodes = std::move(res.nodes);
         chunk.diagnostics = std::move(res.diagnostics);
-
-        chunks_.push_back(std::move(chunk));
     }
 }
 
@@ -132,8 +132,9 @@ bool TopologicalChunkCache::apply_edit(std::string_view new_source, int edit_sta
         return false;
     }
 
-    std::string_view new_chunk_text = new_source.substr(new_start_byte, new_end_byte - new_start_byte);
-    TopographyResult res = phase1_topography_scan(new_chunk_text);
+    size_t old_chunk_size = chunks_[chunk_idx].end_byte - chunks_[chunk_idx].start_byte;
+    chunks_[chunk_idx].source_text = std::string(new_source.substr(new_start_byte, new_end_byte - new_start_byte));
+    TopographyResult res = phase1_topography_scan(chunks_[chunk_idx].source_text);
 
     int line_offset = target_start_line - 1;
     for (auto& node : res.nodes) {
@@ -143,14 +144,18 @@ bool TopologicalChunkCache::apply_edit(std::string_view new_source, int edit_sta
         diag.location.line += line_offset;
     }
 
+    std::ptrdiff_t byte_delta = static_cast<std::ptrdiff_t>(new_end_byte - new_start_byte) - static_cast<std::ptrdiff_t>(old_chunk_size);
+
     chunks_[chunk_idx].start_byte = new_start_byte;
     chunks_[chunk_idx].end_byte = new_end_byte;
     chunks_[chunk_idx].end_line = target_end_line;
     chunks_[chunk_idx].nodes = std::move(res.nodes);
     chunks_[chunk_idx].diagnostics = std::move(res.diagnostics);
-    chunks_[chunk_idx].content_hash = compute_hash(new_chunk_text);
+    chunks_[chunk_idx].content_hash = compute_hash(chunks_[chunk_idx].source_text);
 
     for (size_t i = static_cast<size_t>(chunk_idx + 1); i < chunks_.size(); ++i) {
+        chunks_[i].start_byte = static_cast<size_t>(static_cast<std::ptrdiff_t>(chunks_[i].start_byte) + byte_delta);
+        chunks_[i].end_byte = static_cast<size_t>(static_cast<std::ptrdiff_t>(chunks_[i].end_byte) + byte_delta);
         chunks_[i].start_line += line_delta;
         chunks_[i].end_line += line_delta;
         for (auto& node : chunks_[i].nodes) {
