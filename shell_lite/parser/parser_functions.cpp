@@ -84,6 +84,7 @@ Node *Parser::bind_structure(int index) {
   for (int child_idx : flat_nodes_[index].child_indices) {
     Token head = get_effective_head(child_idx);
     if (head.type == TokenType::TOK_HAS) {
+      mark_node_consumed(child_idx);
       const auto &c_tokens = flat_nodes_[child_idx].tokens;
       size_t assign_pos = static_cast<size_t>(-1);
       for (size_t k = 1; k < c_tokens.size(); k++) {
@@ -110,6 +111,7 @@ Node *Parser::bind_structure(int index) {
       }
     } else if (head.type == TokenType::TOK_TO ||
                head.type == TokenType::TOK_FUNCTION) {
+      mark_node_consumed(child_idx);
       FunctionDef *fn = static_cast<FunctionDef *>(bind_func(child_idx));
       if (fn->name == "init")
         has_explicit_init = true;

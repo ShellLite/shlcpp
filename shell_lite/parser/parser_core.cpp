@@ -80,7 +80,19 @@ std::vector<Node *> Parser::parse_with_topography(TopographyResult topo) {
       }
     }
 
-    return bind_statement_list(root_node_indices_);
+    consumed_nodes_.assign(flat_nodes_.size(), 0);
+    std::vector<Node *> statements = bind_statement_list(root_node_indices_);
+    for (size_t i = 0; i < flat_nodes_.size(); ++i) {
+      if (flat_nodes_[i].parent_index != -1 && !consumed_nodes_[i]) {
+        int bad_line = flat_nodes_[i].line;
+        throw SyntaxError(
+            "IndentationError: unexpected indent at line " +
+                std::to_string(bad_line) +
+                " (indented under a statement that does not take an indented block)",
+            SourceLocation{"", bad_line, 1});
+      }
+    }
+    return statements;
   } catch (shlcppError &err) {
     if (err.location.source_line.empty()) {
       int line_num = err.location.line > 0 ? err.location.line : 1;
@@ -91,13 +103,23 @@ std::vector<Node *> Parser::parse_with_topography(TopographyResult topo) {
   }
 }
 
+void Parser::mark_node_consumed(int index) {
+  if (index >= 0 && static_cast<size_t>(index) < consumed_nodes_.size())
+    consumed_nodes_[index] = 1;
+}
+
 std::vector<Node *>
 Parser::bind_statement_list(const std::vector<int> &indices) {
+  for (int idx : indices)
+    mark_node_consumed(idx);
   std::vector<Node *> ast;
   size_t i = 0;
   while (i < indices.size()) {
     int idx = indices[i];
     if (flat_nodes_[idx].tokens.empty()) {
+      std::vector<Node *> spliced =
+          bind_statement_list(flat_nodes_[idx].child_indices);
+      ast.insert(ast.end(), spliced.begin(), spliced.end());
       i++;
       continue;
     }

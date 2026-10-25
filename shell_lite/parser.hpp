@@ -37,6 +37,8 @@ private:
 
   std::vector<Node *> bind_statement_list(const std::vector<int> &indices);
   Node *bind_node(int index);
+  std::vector<char> consumed_nodes_;
+  void mark_node_consumed(int index);
   // set while binding the methods of a class body; used to resolve super()
   std::optional<std::string_view> binding_class_parent_;
 

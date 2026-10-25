@@ -221,13 +221,16 @@ Node *Parser::bind_match(int index) {
   for (int child_idx : flat_nodes_[index].child_indices) {
     Token head = get_effective_head(child_idx);
     if (head.type == TokenType::TOK_IS) {
+      mark_node_consumed(child_idx);
       node->cases.push_back(
           {parse_expr_recursive(
                extract_expr_tokens(flat_nodes_[child_idx].tokens, 1)),
            bind_statement_list(flat_nodes_[child_idx].child_indices)});
-    } else if (head.type == TokenType::TOK_OTHERWISE)
+    } else if (head.type == TokenType::TOK_OTHERWISE) {
+      mark_node_consumed(child_idx);
       node->default_case =
           bind_statement_list(flat_nodes_[child_idx].child_indices);
+    }
   }
   set_node_loc(node, index);
   return node;

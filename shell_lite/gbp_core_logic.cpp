@@ -59,6 +59,31 @@ static void check_mixed_tabs_continuations(std::string_view raw_block, int start
     }
 }
 
+static bool block_has_code(std::string_view raw_block) {
+    bool in_block_comment = false;
+    bool in_line_comment = false;
+    for (size_t i = 0; i < raw_block.size(); ++i) {
+        char c = raw_block[i];
+        if (in_block_comment) {
+            if (c == '*' && i + 1 < raw_block.size() && raw_block[i + 1] == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+        } else if (in_line_comment) {
+            if (c == '\n')
+                in_line_comment = false;
+        } else if (c == '/' && i + 1 < raw_block.size() && raw_block[i + 1] == '*') {
+            in_block_comment = true;
+            ++i;
+        } else if (c == '#') {
+            in_line_comment = true;
+        } else if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+            return true;
+        }
+    }
+    return false;
+}
+
 TopographyResult phase1_topography_scan(std::string_view source) {
     TopographyResult result;
     result.nodes.reserve(source.size() / 40);
@@ -164,7 +189,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
                 std::string_view raw_block = source.substr(node_start, pos - node_start);
 
                 size_t first_non_space = raw_block.find_first_not_of(" \t\r\n");
-                if (first_non_space != std::string_view::npos && raw_block[first_non_space] != '#') {
+                if (first_non_space != std::string_view::npos && block_has_code(raw_block)) {
                     int indent = 0;
                     bool has_tab = false, has_space = false;
                     for (size_t i = 0; i < first_non_space; ++i) {
@@ -342,7 +367,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                 std::string_view raw_block = source.substr(node_start, pos - node_start);
 
                 size_t first_non_space = raw_block.find_first_not_of(" \t\r\n");
-                if (first_non_space != std::string_view::npos && raw_block[first_non_space] != '#') {
+                if (first_non_space != std::string_view::npos && block_has_code(raw_block)) {
                     int indent = 0;
                     bool has_tab = false, has_space = false;
                     for (size_t i = 0; i < first_non_space; ++i) {
