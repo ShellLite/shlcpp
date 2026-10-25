@@ -265,9 +265,6 @@ static int handle_check(int argc, char *argv[]) {
       std::cerr << "Error: Parser returned no nodes/statements." << std::endl;
       return 2;
     }
-    if (parser.has_diagnostics() && nodes.empty()) {
-      return 2;
-    }
     std::cout << "Syntax OK: " << file_path << " (" << nodes.size() << " top-level statements)" << std::endl;
     return 0;
   });

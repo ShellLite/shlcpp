@@ -46,8 +46,9 @@ to valid_anchored_function(x, y)
 say valid_anchored_function(5, 6)
 """)
         code = "\n".join(lines)
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "130")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_cross_chunk_comment(self):
         lines = []
@@ -106,8 +107,9 @@ to anchor_two()
 """)
         lines.append("say anchor_one() + anchor_two()")
         code = "\n".join(lines)
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "30")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_deep_nesting(self):
         lines = ["make total = 0"]

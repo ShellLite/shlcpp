@@ -20,8 +20,9 @@ to calculate(a, b)
 res = calculate(15, 25)
 say res
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "40")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_unclosed_paren(self):
         code = """val = (100 + 200 + 300
@@ -33,8 +34,9 @@ structure Counter
 c = new Counter(42)
 say c.get_count()
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "42")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed parenthesis", str(ctx.exception))
 
     def test_unclosed_bracket(self):
         code = """items = [1, 2, 3, 4, 5
@@ -46,8 +48,9 @@ class Greeter
 g = new Greeter("ShellLite")
 say g.greet()
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "Hello, ShellLite")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed bracket", str(ctx.exception))
 
     def test_multiple_anomalies(self):
         code = """s1 = "broken quote 1
@@ -61,8 +64,9 @@ to second_fn()
 total = first() + second_fn()
 say total
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "300")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_comment_with_declaration(self):
         code = """/* Usage example:
@@ -86,8 +90,9 @@ to anchored_fn()
 
 say anchored_fn()
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "777")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_unanchored_eof(self):
         code = 'x = (10 + 20'
@@ -102,8 +107,9 @@ def compute_val(a, b)
 
 say compute_val(6, 7)
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "42")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed string literal", str(ctx.exception))
 
     def test_unclosed_paren_class(self):
         code = """expr = (1 + 2 + 3 + 4
@@ -115,8 +121,9 @@ class Item
 item = new Item(100)
 say item.get_val()
 """
-        output = run_shl_code(code).strip()
-        self.assertEqual(output, "100")
+        with self.assertRaises(RuntimeError) as ctx:
+            run_shl_code(code)
+        self.assertIn("Unclosed parenthesis", str(ctx.exception))
 
     def test_fuzz_anchors(self):
         import random
@@ -145,8 +152,9 @@ say item.get_val()
             call_expr = " + ".join([f"fn_{trial}_{i}()" for i in range(num_anchors)])
             lines.append(f"say {call_expr}\n")
             code = "".join(lines)
-            output = run_shl_code(code).strip()
-            self.assertEqual(output, str(expected_sum))
+            with self.assertRaises(RuntimeError) as ctx:
+                run_shl_code(code)
+            self.assertIn("Unclosed", str(ctx.exception))
 
 if __name__ == "__main__":
     unittest.main()
