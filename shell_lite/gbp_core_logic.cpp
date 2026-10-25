@@ -97,6 +97,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
     int bracket_depth = 0;
     int brace_depth = 0;
     char in_quote = 0;
+    bool in_triple_quote = false;
     bool escaped = false;
     bool in_comment = false;
     bool in_block_comment = false;
@@ -122,7 +123,12 @@ TopographyResult phase1_topography_scan(std::string_view source) {
         } else if (in_quote) {
             if (escaped) escaped = false;
             else if (c == '\\') escaped = true;
-            else if (c == in_quote) in_quote = 0;
+            else if (in_triple_quote && c == in_quote && pos + 2 < source.size() && source[pos + 1] == in_quote && source[pos + 2] == in_quote) {
+                in_quote = 0;
+                in_triple_quote = false;
+                pos += 2;
+            }
+            else if (!in_triple_quote && c == in_quote) in_quote = 0;
         } else {
             if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
                 in_block_comment = true;
@@ -138,6 +144,10 @@ TopographyResult phase1_topography_scan(std::string_view source) {
                 continue;
             } else if (c == '"' || c == '\'') {
                 in_quote = c;
+                if (pos + 2 < source.size() && source[pos + 1] == c && source[pos + 2] == c) {
+                    in_triple_quote = true;
+                    pos += 2;
+                }
             } else if (c == '(') {
                 paren_depth++;
             } else if (c == ')') {
@@ -164,7 +174,7 @@ TopographyResult phase1_topography_scan(std::string_view source) {
                         bc_recovery_pos = next_line_start;
                         bc_recovery_line = line_count + 1;
                     }
-                } else if (is_anchor_line(source, next_line_start)) {
+                } else if (!in_triple_quote && is_anchor_line(source, next_line_start)) {
                     if (in_quote != 0) {
                         std::string sl = extract_source_line(source, start_line);
                         result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing " + std::string(1, in_quote) + ")",
@@ -269,6 +279,7 @@ struct ChunkScanResult {
     std::vector<GeoNode> nodes;
     std::vector<SyntaxError> diagnostics;
     char trailing_in_quote = 0;
+    bool trailing_in_triple_quote = false;
     bool trailing_escaped = false;
     bool trailing_in_comment = false;
     bool trailing_in_block_comment = false;
@@ -276,16 +287,14 @@ struct ChunkScanResult {
     int trailing_bracket_depth = 0;
     int trailing_brace_depth = 0;
     int trailing_start_line = 1;
+    int line_count = 1;
     bool has_anchor = false;
     int first_anchor_line = 0;
     size_t first_anchor_node_index = 0;
-    int line_count = 1;
 };
 
 static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, size_t chunk_end, int start_line_num) {
     ChunkScanResult result;
-    result.nodes.reserve((chunk_end - chunk_start) / 40);
-
     size_t pos = chunk_start;
     size_t node_start = chunk_start;
     int line_count = start_line_num;
@@ -295,6 +304,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
     int bracket_depth = 0;
     int brace_depth = 0;
     char in_quote = 0;
+    bool in_triple_quote = false;
     bool escaped = false;
     bool in_comment = false;
     bool in_block_comment = false;
@@ -320,7 +330,12 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
         } else if (in_quote) {
             if (escaped) escaped = false;
             else if (c == '\\') escaped = true;
-            else if (c == in_quote) in_quote = 0;
+            else if (in_triple_quote && c == in_quote && pos + 2 < source.size() && source[pos + 1] == in_quote && source[pos + 2] == in_quote) {
+                in_quote = 0;
+                in_triple_quote = false;
+                pos += 2;
+            }
+            else if (!in_triple_quote && c == in_quote) in_quote = 0;
         } else {
             if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
                 in_block_comment = true;
@@ -336,6 +351,10 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                 continue;
             } else if (c == '"' || c == '\'') {
                 in_quote = c;
+                if (pos + 2 < source.size() && source[pos + 1] == c && source[pos + 2] == c) {
+                    in_triple_quote = true;
+                    pos += 2;
+                }
             } else if (c == '(') {
                 paren_depth++;
             } else if (c == ')') {
@@ -355,15 +374,14 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
             bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0 || in_block_comment);
 
             if (in_anomaly) {
-            size_t next_line_start = (pos < chunk_end) ? pos + 1 : pos;
-            if (in_block_comment) {
-                if (!has_bc_recovery && is_anchor_line(source, next_line_start)) {
-                    has_bc_recovery = true;
-                    bc_recovery_pos = next_line_start;
-                    bc_recovery_line = line_count + 1;
-                }
-            } else if (is_anchor_line(source, next_line_start)) {
-
+                size_t next_line_start = (pos < chunk_end) ? pos + 1 : pos;
+                if (in_block_comment) {
+                    if (!has_bc_recovery && is_anchor_line(source, next_line_start)) {
+                        has_bc_recovery = true;
+                        bc_recovery_pos = next_line_start;
+                        bc_recovery_line = line_count + 1;
+                    }
+                } else if (!in_triple_quote && is_anchor_line(source, next_line_start)) {
                     if (in_quote != 0) {
                         std::string sl = extract_source_line(source, current_start_line);
                         result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing " + std::string(1, in_quote) + ")",
@@ -390,12 +408,6 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                     in_comment = false;
                     in_block_comment = false;
 
-                    if (!result.has_anchor) {
-                        result.has_anchor = true;
-                        result.first_anchor_line = line_count + 1;
-                        result.first_anchor_node_index = result.nodes.size();
-                    }
-
                     node_start = pos + 1;
                     current_start_line = line_count + 1;
                     line_count++;
@@ -420,7 +432,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
                                                                  SourceLocation{"", current_start_line, 1, sl, "use either tabs or spaces consistently"}));
                     }
                     check_mixed_tabs_continuations(raw_block, current_start_line, source, result.diagnostics);
-                    if (!result.has_anchor && indent == 0 && is_anchor_line(source, node_start)) {
+                    if (is_anchor_line(source, node_start)) {
                         result.has_anchor = true;
                         result.first_anchor_line = current_start_line;
                         result.first_anchor_node_index = result.nodes.size();
@@ -454,6 +466,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
             result.first_anchor_node_index = base + tail.first_anchor_node_index;
         }
         in_quote = tail.trailing_in_quote;
+        in_triple_quote = tail.trailing_in_triple_quote;
         escaped = tail.trailing_escaped;
         in_comment = tail.trailing_in_comment;
         in_block_comment = tail.trailing_in_block_comment;
@@ -465,6 +478,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
     }
 
     result.trailing_in_quote = in_quote;
+    result.trailing_in_triple_quote = in_triple_quote;
     result.trailing_escaped = escaped;
     result.trailing_in_comment = in_comment;
     result.trailing_in_block_comment = in_block_comment;
@@ -672,63 +686,49 @@ TopographyResult phase1_topography_scan_parallel(std::string_view source, size_t
     return final_result;
 }
 
-
 GPDAStackManager::GPDAStackManager(std::vector<GeoNode>* nodes) : nodes_ref(nodes) {
-    if (nodes) {
-        stack.reserve(nodes->size());
-    }
+    stack.reserve(64);
 }
 
-GPDAStackManager::~GPDAStackManager() {
-    clear();
-}
-
-GPDAStackManager::GPDAStackManager(GPDAStackManager&& other) noexcept 
-    : stack(std::move(other.stack)), nodes_ref(other.nodes_ref) {
-    other.nodes_ref = nullptr;
-}
-
-GPDAStackManager& GPDAStackManager::operator=(GPDAStackManager&& other) noexcept {
-    if (this != &other) {
-        stack = std::move(other.stack);
-        nodes_ref = other.nodes_ref;
-        other.nodes_ref = nullptr;
-    }
-    return *this;
-}
-
-void GPDAStackManager::process_node(int node_index) {
-    if (!nodes_ref) return;
-    auto& nodes = *nodes_ref;
-    
-    int target_indent = nodes[node_index].indent_level;
-
-    while (!stack.empty() && target_indent <= nodes[stack.back()].indent_level) {
-        stack.pop_back();
-    }
-
-    if (!stack.empty()) {
-        int parent_idx = stack.back();
-        nodes[node_index].parent_index = parent_idx;
-        nodes[parent_idx].child_indices.push_back(node_index);
-    } else {
-        nodes[node_index].parent_index = -1;
-    }
-    stack.push_back(node_index);
-}
+GPDAStackManager::~GPDAStackManager() = default;
+GPDAStackManager::GPDAStackManager(GPDAStackManager&& other) noexcept = default;
+GPDAStackManager& GPDAStackManager::operator=(GPDAStackManager&& other) noexcept = default;
 
 void GPDAStackManager::clear() {
     stack.clear();
-    nodes_ref = nullptr;
+}
+
+void GPDAStackManager::process_node(int node_index) {
+    if (!nodes_ref || node_index < 0 || static_cast<size_t>(node_index) >= nodes_ref->size()) {
+        return;
+    }
+
+    GeoNode& current_node = (*nodes_ref)[node_index];
+
+    while (!stack.empty()) {
+        int top_index = stack.back();
+        const GeoNode& top_node = (*nodes_ref)[top_index];
+
+        if (top_node.indent_level < current_node.indent_level) {
+            current_node.parent_index = top_index;
+            (*nodes_ref)[top_index].child_indices.push_back(node_index);
+            break;
+        } else {
+            stack.pop_back();
+        }
+    }
+
+    stack.push_back(node_index);
 }
 
 void phase2_topology_linking(std::vector<GeoNode>& nodes) {
     if (nodes.empty()) return;
 
-    GPDAStackManager manager(&nodes);
+    GPDAStackManager stack_manager(&nodes);
+
     for (size_t i = 0; i < nodes.size(); ++i) {
-        manager.process_node(static_cast<int>(i));
+        stack_manager.process_node(static_cast<int>(i));
     }
 }
 
-}
+} // namespace shell_lite

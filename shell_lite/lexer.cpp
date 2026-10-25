@@ -231,6 +231,30 @@ Token Lexer::read_string() {
     char quote = advance();
     size_t start = pos_;
     int start_col = col_ - 1;
+    int start_line = line_;
+    bool triple = peek() == quote && peek_next() == quote;
+    if (triple) {
+        advance();
+        advance();
+        start = pos_;
+        while (!is_at_end()) {
+            if (peek() == '\\') {
+                advance();
+                if (is_at_end()) break;
+                advance();
+                continue;
+            }
+            if (peek() == quote && pos_ + 2 < source_.size() && source_[pos_ + 1] == quote && source_[pos_ + 2] == quote) break;
+            advance();
+        }
+        std::string_view value = source_.substr(start, pos_ - start);
+        if (!is_at_end()) {
+            advance();
+            advance();
+            advance();
+        }
+        return Token(TokenType::TOK_STRING, value, start_line, start_col);
+    }
     while (!is_at_end() && peek() != quote) {
         if (peek() == '\\') {
             advance();
@@ -240,7 +264,7 @@ Token Lexer::read_string() {
     }
     std::string_view value = source_.substr(start, pos_ - start);
     if (!is_at_end()) advance();
-    return Token(TokenType::TOK_STRING, value, line_, start_col);
+    return Token(TokenType::TOK_STRING, value, start_line, start_col);
 }
 
 Token Lexer::read_operator() {

@@ -24,6 +24,26 @@ say res
             run_shl_code(code)
         self.assertIn("Unclosed string literal", str(ctx.exception))
 
+    def test_triple_quoted_anchor_line(self):
+        code = '''to get_msg()
+    give """line one
+to be continued"""
+
+say get_msg()
+'''
+        output = run_shl_code(code).strip()
+        self.assertEqual(output, "line one\nto be continued")
+
+    def test_triple_single_quoted_anchor_line(self):
+        code = """to get_msg()
+    give '''alpha
+from the other side'''
+
+say get_msg()
+"""
+        output = run_shl_code(code).strip()
+        self.assertEqual(output, "alpha\nfrom the other side")
+
     def test_unclosed_paren(self):
         code = """val = (100 + 200 + 300
 structure Counter
