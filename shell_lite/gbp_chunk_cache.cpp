@@ -14,8 +14,25 @@ uint64_t TopologicalChunkCache::compute_hash(std::string_view text) {
     return hash;
 }
 
+size_t TopologicalChunkCache::assembled_node_offset(size_t chunk_idx) const {
+    size_t off = 0;
+    for (size_t i = 0; i < chunk_idx && i < chunks_.size(); ++i) {
+        off += chunks_[i].nodes.size();
+    }
+    return off;
+}
+
+size_t TopologicalChunkCache::assembled_diag_offset(size_t chunk_idx) const {
+    size_t off = 0;
+    for (size_t i = 0; i < chunk_idx && i < chunks_.size(); ++i) {
+        off += chunks_[i].diagnostics.size();
+    }
+    return off;
+}
+
 void TopologicalChunkCache::build_from_source(std::string_view source) {
     chunks_.clear();
+    assembled_ = TopographyResult();
     if (source.empty()) return;
 
     std::vector<size_t> anchor_starts;
@@ -67,6 +84,19 @@ void TopologicalChunkCache::build_from_source(std::string_view source) {
         }
         chunk.nodes = std::move(res.nodes);
         chunk.diagnostics = std::move(res.diagnostics);
+    }
+
+    size_t total_nodes = 0;
+    size_t total_diag = 0;
+    for (const auto& c : chunks_) {
+        total_nodes += c.nodes.size();
+        total_diag += c.diagnostics.size();
+    }
+    assembled_.nodes.reserve(total_nodes);
+    assembled_.diagnostics.reserve(total_diag);
+    for (const auto& c : chunks_) {
+        assembled_.nodes.insert(assembled_.nodes.end(), c.nodes.begin(), c.nodes.end());
+        assembled_.diagnostics.insert(assembled_.diagnostics.end(), c.diagnostics.begin(), c.diagnostics.end());
     }
 }
 
@@ -133,15 +163,38 @@ bool TopologicalChunkCache::apply_edit(std::string_view new_source, int edit_sta
     }
 
     size_t old_chunk_size = chunks_[chunk_idx].end_byte - chunks_[chunk_idx].start_byte;
-    chunks_[chunk_idx].source_text = std::string(new_source.substr(new_start_byte, new_end_byte - new_start_byte));
-    TopographyResult res = phase1_topography_scan(chunks_[chunk_idx].source_text);
+    std::string_view new_chunk_text = new_source.substr(new_start_byte, new_end_byte - new_start_byte);
+    uint64_t new_hash = compute_hash(new_chunk_text);
 
-    int line_offset = target_start_line - 1;
-    for (auto& node : res.nodes) {
-        node.line += line_offset;
-    }
-    for (auto& diag : res.diagnostics) {
-        diag.location.line += line_offset;
+    size_t node_off = assembled_node_offset(static_cast<size_t>(chunk_idx));
+    size_t diag_off = assembled_diag_offset(static_cast<size_t>(chunk_idx));
+    size_t old_node_count = chunks_[chunk_idx].nodes.size();
+    size_t old_diag_count = chunks_[chunk_idx].diagnostics.size();
+
+    if (new_hash != chunks_[chunk_idx].content_hash) {
+        chunks_[chunk_idx].source_text = std::string(new_chunk_text);
+        TopographyResult res = phase1_topography_scan(chunks_[chunk_idx].source_text);
+
+        int line_offset = target_start_line - 1;
+        for (auto& node : res.nodes) {
+            node.line += line_offset;
+        }
+        for (auto& diag : res.diagnostics) {
+            diag.location.line += line_offset;
+        }
+
+        chunks_[chunk_idx].nodes = std::move(res.nodes);
+        chunks_[chunk_idx].diagnostics = std::move(res.diagnostics);
+        chunks_[chunk_idx].content_hash = new_hash;
+
+        auto& a_nodes = assembled_.nodes;
+        a_nodes.erase(a_nodes.begin() + node_off, a_nodes.begin() + node_off + old_node_count);
+        a_nodes.insert(a_nodes.begin() + node_off,
+                       chunks_[chunk_idx].nodes.begin(), chunks_[chunk_idx].nodes.end());
+        auto& a_diags = assembled_.diagnostics;
+        a_diags.erase(a_diags.begin() + diag_off, a_diags.begin() + diag_off + old_diag_count);
+        a_diags.insert(a_diags.begin() + diag_off,
+                       chunks_[chunk_idx].diagnostics.begin(), chunks_[chunk_idx].diagnostics.end());
     }
 
     std::ptrdiff_t byte_delta = static_cast<std::ptrdiff_t>(new_end_byte - new_start_byte) - static_cast<std::ptrdiff_t>(old_chunk_size);
@@ -149,9 +202,6 @@ bool TopologicalChunkCache::apply_edit(std::string_view new_source, int edit_sta
     chunks_[chunk_idx].start_byte = new_start_byte;
     chunks_[chunk_idx].end_byte = new_end_byte;
     chunks_[chunk_idx].end_line = target_end_line;
-    chunks_[chunk_idx].nodes = std::move(res.nodes);
-    chunks_[chunk_idx].diagnostics = std::move(res.diagnostics);
-    chunks_[chunk_idx].content_hash = compute_hash(chunks_[chunk_idx].source_text);
 
     for (size_t i = static_cast<size_t>(chunk_idx + 1); i < chunks_.size(); ++i) {
         chunks_[i].start_byte = static_cast<size_t>(static_cast<std::ptrdiff_t>(chunks_[i].start_byte) + byte_delta);
@@ -166,26 +216,23 @@ bool TopologicalChunkCache::apply_edit(std::string_view new_source, int edit_sta
         }
     }
 
-    out_result = get_full_result();
+    if (line_delta != 0) {
+        size_t later_node_off = node_off + chunks_[chunk_idx].nodes.size();
+        for (size_t i = later_node_off; i < assembled_.nodes.size(); ++i) {
+            assembled_.nodes[i].line += line_delta;
+        }
+        size_t later_diag_off = diag_off + chunks_[chunk_idx].diagnostics.size();
+        for (size_t i = later_diag_off; i < assembled_.diagnostics.size(); ++i) {
+            assembled_.diagnostics[i].location.line += line_delta;
+        }
+    }
+
+    out_result = assembled_;
     return true;
 }
 
-TopographyResult TopologicalChunkCache::get_full_result() const {
-    TopographyResult result;
-    size_t total_nodes = 0;
-    size_t total_diag = 0;
-    for (const auto& c : chunks_) {
-        total_nodes += c.nodes.size();
-        total_diag += c.diagnostics.size();
-    }
-    result.nodes.reserve(total_nodes);
-    result.diagnostics.reserve(total_diag);
-
-    for (const auto& c : chunks_) {
-        result.nodes.insert(result.nodes.end(), c.nodes.begin(), c.nodes.end());
-        result.diagnostics.insert(result.diagnostics.end(), c.diagnostics.begin(), c.diagnostics.end());
-    }
-    return result;
+const TopographyResult& TopologicalChunkCache::get_full_result() const {
+    return assembled_;
 }
 
 } // namespace shell_lite

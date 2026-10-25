@@ -26,15 +26,18 @@ public:
 
     void build_from_source(std::string_view source);
     bool apply_edit(std::string_view new_source, int edit_start_line, int edit_end_line, int line_delta, TopographyResult& out_result);
-    TopographyResult get_full_result() const;
+    const TopographyResult& get_full_result() const;
     int find_chunk_index(int line) const;
 
     const std::vector<TopologicalChunk>& get_chunks() const { return chunks_; }
     size_t chunk_count() const { return chunks_.size(); }
-    void clear() { chunks_.clear(); }
+    void clear() { chunks_.clear(); assembled_ = TopographyResult(); }
 
 private:
     std::vector<TopologicalChunk> chunks_;
+    TopographyResult assembled_;
+    size_t assembled_node_offset(size_t chunk_idx) const;
+    size_t assembled_diag_offset(size_t chunk_idx) const;
     static uint64_t compute_hash(std::string_view text);
 };
 
