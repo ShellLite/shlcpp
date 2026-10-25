@@ -323,7 +323,7 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
             bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0);
 
             if (in_anomaly) {
-                size_t next_line_start = pos + 1;
+                size_t next_line_start = (pos < chunk_end) ? pos + 1 : pos;
                 if (is_anchor_line(source, next_line_start)) {
                     if (in_quote != 0) {
                         std::string sl = extract_source_line(source, current_start_line);
@@ -410,6 +410,96 @@ static ChunkScanResult scan_chunk(std::string_view source, size_t chunk_start, s
     return result;
 }
 
+static std::vector<size_t> find_clean_split_points(std::string_view source) {
+    std::vector<size_t> points;
+
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    char in_quote = 0;
+    bool in_triple_quote = false;
+    bool escaped = false;
+    bool in_comment = false;
+    bool in_block_comment = false;
+
+    size_t pos = 0;
+    while (pos < source.size()) {
+        char c = source[pos];
+
+        if (in_block_comment) {
+            if (c == '*' && pos + 1 < source.size() && source[pos + 1] == '/') {
+                in_block_comment = false;
+                pos += 2;
+                continue;
+            }
+        } else if (in_comment) {
+            if (c == '\n') {
+                in_comment = false;
+            }
+        } else if (in_quote) {
+            if (escaped) escaped = false;
+            else if (c == '\\') escaped = true;
+            else if (in_triple_quote && c == in_quote && pos + 2 < source.size() && source[pos + 1] == in_quote && source[pos + 2] == in_quote) {
+                in_quote = 0;
+                in_triple_quote = false;
+                pos += 2;
+            }
+            else if (!in_triple_quote && c == in_quote) in_quote = 0;
+        } else {
+            if (c == '/' && pos + 1 < source.size() && source[pos + 1] == '*') {
+                in_block_comment = true;
+                pos += 2;
+                continue;
+            } else if (c == '#') {
+                in_comment = true;
+            } else if (c == '\\' && ((pos + 1 < source.size() && source[pos + 1] == '\n') || (pos + 2 < source.size() && source[pos + 1] == '\r' && source[pos + 2] == '\n'))) {
+                if (source[pos + 1] == '\r') pos += 3;
+                else pos += 2;
+                continue;
+            } else if (c == '"' || c == '\'') {
+                in_quote = c;
+                if (pos + 2 < source.size() && source[pos + 1] == c && source[pos + 2] == c) {
+                    in_triple_quote = true;
+                    pos += 2;
+                }
+            } else if (c == '(') {
+                paren_depth++;
+            } else if (c == ')') {
+                paren_depth = std::max(0, paren_depth - 1);
+            } else if (c == '[') {
+                bracket_depth++;
+            } else if (c == ']') {
+                bracket_depth = std::max(0, bracket_depth - 1);
+            } else if (c == '{') {
+                brace_depth++;
+            } else if (c == '}') {
+                brace_depth = std::max(0, brace_depth - 1);
+            }
+        }
+
+        if (c == '\n') {
+            bool in_anomaly = (paren_depth > 0 || bracket_depth > 0 || brace_depth > 0 || in_quote != 0);
+            if (in_anomaly) {
+                if (!in_triple_quote && is_anchor_line(source, pos + 1)) {
+                    in_quote = 0;
+                    paren_depth = 0;
+                    bracket_depth = 0;
+                    brace_depth = 0;
+                    escaped = false;
+                    in_comment = false;
+                    in_block_comment = false;
+                    if (pos + 1 < source.size()) points.push_back(pos + 1);
+                }
+            } else if (!in_block_comment && !in_triple_quote) {
+                if (pos + 1 < source.size()) points.push_back(pos + 1);
+            }
+        }
+        pos++;
+    }
+
+    return points;
+}
+
 TopographyResult phase1_topography_scan_parallel(std::string_view source, size_t num_threads) {
     if (source.empty()) return {};
 
@@ -421,17 +511,29 @@ TopographyResult phase1_topography_scan_parallel(std::string_view source, size_t
         return phase1_topography_scan(source);
     }
 
+    std::vector<size_t> split_points = find_clean_split_points(source);
+    if (split_points.empty()) {
+        return phase1_topography_scan(source);
+    }
+
     std::vector<size_t> chunk_starts;
     chunk_starts.push_back(0);
     size_t approx_chunk_size = source.size() / actual_threads;
 
     for (size_t i = 1; i < actual_threads; ++i) {
         size_t target = i * approx_chunk_size;
-        size_t next_nl = source.find('\n', target);
-        if (next_nl != std::string_view::npos && next_nl + 1 < source.size()) {
-            if (next_nl + 1 > chunk_starts.back()) {
-                chunk_starts.push_back(next_nl + 1);
+        size_t best = 0;
+        size_t best_dist = static_cast<size_t>(-1);
+        for (size_t cand : split_points) {
+            if (cand <= chunk_starts.back()) continue;
+            size_t dist = cand >= target ? cand - target : target - cand;
+            if (dist < best_dist) {
+                best_dist = dist;
+                best = cand;
             }
+        }
+        if (best != 0) {
+            chunk_starts.push_back(best);
         }
     }
     chunk_starts.push_back(source.size());
@@ -468,105 +570,36 @@ TopographyResult phase1_topography_scan_parallel(std::string_view source, size_t
     TopographyResult final_result;
     final_result.nodes.reserve(source.size() / 40);
 
-    bool active_anomaly = false;
-    char active_quote = 0;
-    int active_paren = 0;
-    int active_bracket = 0;
-    int active_brace = 0;
-    bool active_block_comment = false;
-    int anomaly_start_line = 1;
-
     for (size_t i = 0; i < n_chunks; ++i) {
         auto& cr = chunk_results[i];
-
-        if (!active_anomaly) {
-            final_result.diagnostics.insert(final_result.diagnostics.end(),
-                                            cr.diagnostics.begin(), cr.diagnostics.end());
-            final_result.nodes.insert(final_result.nodes.end(),
-                                      cr.nodes.begin(), cr.nodes.end());
-
-            if (cr.trailing_in_quote != 0 || cr.trailing_paren_depth > 0 ||
-                cr.trailing_bracket_depth > 0 || cr.trailing_brace_depth > 0 ||
-                cr.trailing_in_block_comment) {
-                active_anomaly = true;
-                active_quote = cr.trailing_in_quote;
-                active_paren = cr.trailing_paren_depth;
-                active_bracket = cr.trailing_bracket_depth;
-                active_brace = cr.trailing_brace_depth;
-                active_block_comment = cr.trailing_in_block_comment;
-                anomaly_start_line = cr.trailing_start_line;
-            }
-        } else {
-            if (cr.has_anchor) {
-                if (active_quote != 0) {
-                    std::string sl = extract_source_line(source, anomaly_start_line);
-                    final_result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing " + std::string(1, active_quote) + ")",
-                                                                 SourceLocation{"", anomaly_start_line, 1, sl, "add closing " + std::string(1, active_quote)}));
-                } else if (active_paren > 0) {
-                    std::string sl = extract_source_line(source, anomaly_start_line);
-                    final_result.diagnostics.push_back(SyntaxError("Unclosed parenthesis '('",
-                                                                 SourceLocation{"", anomaly_start_line, 1, sl, "add closing ')'"}));
-                } else if (active_bracket > 0) {
-                    std::string sl = extract_source_line(source, anomaly_start_line);
-                    final_result.diagnostics.push_back(SyntaxError("Unclosed bracket '['",
-                                                                 SourceLocation{"", anomaly_start_line, 1, sl, "add closing ']'"}));
-                } else if (active_brace > 0) {
-                    std::string sl = extract_source_line(source, anomaly_start_line);
-                    final_result.diagnostics.push_back(SyntaxError("Unclosed brace '{'",
-                                                                 SourceLocation{"", anomaly_start_line, 1, sl, "add closing '}'"}));
-                } else if (active_block_comment) {
-                    std::string sl = extract_source_line(source, anomaly_start_line);
-                    final_result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
-                                                                 SourceLocation{"", anomaly_start_line, 1, sl, "add closing '*/'"}));
-                }
-
-                if (cr.first_anchor_node_index < cr.nodes.size()) {
-                    final_result.nodes.insert(final_result.nodes.end(),
-                                              cr.nodes.begin() + cr.first_anchor_node_index,
-                                              cr.nodes.end());
-                }
-                final_result.diagnostics.insert(final_result.diagnostics.end(),
-                                                cr.diagnostics.begin(), cr.diagnostics.end());
-
-                if (cr.trailing_in_quote != 0 || cr.trailing_paren_depth > 0 ||
-                    cr.trailing_bracket_depth > 0 || cr.trailing_brace_depth > 0 ||
-                    cr.trailing_in_block_comment) {
-                    active_anomaly = true;
-                    active_quote = cr.trailing_in_quote;
-                    active_paren = cr.trailing_paren_depth;
-                    active_bracket = cr.trailing_bracket_depth;
-                    active_brace = cr.trailing_brace_depth;
-                    active_block_comment = cr.trailing_in_block_comment;
-                    anomaly_start_line = cr.trailing_start_line;
-                } else {
-                    active_anomaly = false;
-                }
-            }
-        }
+        final_result.diagnostics.insert(final_result.diagnostics.end(),
+                                        cr.diagnostics.begin(), cr.diagnostics.end());
+        final_result.nodes.insert(final_result.nodes.end(),
+                                  cr.nodes.begin(), cr.nodes.end());
     }
 
-    if (active_anomaly) {
-        if (active_quote != 0) {
-            std::string sl = extract_source_line(source, anomaly_start_line);
-            final_result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing quote)",
-                                                         SourceLocation{"", anomaly_start_line, 1, sl, "add closing " + std::string(1, active_quote)}));
-        } else if (active_paren > 0) {
-            std::string sl = extract_source_line(source, anomaly_start_line);
-            final_result.diagnostics.push_back(SyntaxError("Unclosed parenthesis '('",
-                                                         SourceLocation{"", anomaly_start_line, 1, sl, "add closing ')'"}));
-        } else if (active_bracket > 0) {
-            std::string sl = extract_source_line(source, anomaly_start_line);
-            final_result.diagnostics.push_back(SyntaxError("Unclosed bracket '['",
-                                                         SourceLocation{"", anomaly_start_line, 1, sl, "add closing ']'"}));
-        } else if (active_brace > 0) {
-            std::string sl = extract_source_line(source, anomaly_start_line);
-            final_result.diagnostics.push_back(SyntaxError("Unclosed brace '{'",
-                                                         SourceLocation{"", anomaly_start_line, 1, sl, "add closing '}'"}));
-        } else if (active_block_comment) {
-            std::string sl = extract_source_line(source, anomaly_start_line);
-            final_result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
-                                                         SourceLocation{"", anomaly_start_line, 1, sl, "add closing '*/'"}));
-        }
+    const auto& last = chunk_results.back();
+    int anomaly_start_line = last.trailing_start_line;
+    if (last.trailing_in_quote != 0) {
+        std::string sl = extract_source_line(source, anomaly_start_line);
+        final_result.diagnostics.push_back(SyntaxError("Unclosed string literal (missing closing quote)",
+                                                     SourceLocation{"", anomaly_start_line, 1, sl, "add closing " + std::string(1, last.trailing_in_quote)}));
+    } else if (last.trailing_paren_depth > 0) {
+        std::string sl = extract_source_line(source, anomaly_start_line);
+        final_result.diagnostics.push_back(SyntaxError("Unclosed parenthesis '('",
+                                                     SourceLocation{"", anomaly_start_line, 1, sl, "add closing ')'"}));
+    } else if (last.trailing_bracket_depth > 0) {
+        std::string sl = extract_source_line(source, anomaly_start_line);
+        final_result.diagnostics.push_back(SyntaxError("Unclosed bracket '['",
+                                                     SourceLocation{"", anomaly_start_line, 1, sl, "add closing ']'"}));
+    } else if (last.trailing_brace_depth > 0) {
+        std::string sl = extract_source_line(source, anomaly_start_line);
+        final_result.diagnostics.push_back(SyntaxError("Unclosed brace '{'",
+                                                     SourceLocation{"", anomaly_start_line, 1, sl, "add closing '}'"}));
+    } else if (last.trailing_in_block_comment) {
+        std::string sl = extract_source_line(source, anomaly_start_line);
+        final_result.diagnostics.push_back(SyntaxError("Unclosed block comment '/*'",
+                                                     SourceLocation{"", anomaly_start_line, 1, sl, "add closing '*/'"}));
     }
 
     return final_result;
